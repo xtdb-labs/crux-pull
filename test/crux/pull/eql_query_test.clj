@@ -2,9 +2,8 @@
 
 (ns crux.pull.eql-query-test
   (:require
-   [clojure.test :refer [deftest is use-fixtures run-tests successful? testing]]
+   [clojure.test :refer [deftest is run-tests successful? testing]]
    [edn-query-language.core :as eql]
-   [jsonista.core :as json]
    [clojure.string :as str]))
 
 (do
@@ -112,8 +111,7 @@
       (throw
        (ex-info
         "Cannot extract GraphQL type, EQL type not matched"
-        {:type (:type node)}))
-      ))
+        {:type (:type node)}))))
 
   (deftest to-field-test
     (let [types (vec
@@ -124,18 +122,20 @@
            (+ 1 ;; root
               2 ;; properties
               )
-           (count types
-                  )))
+           (count types)))
       (is (= "Root" (get-in types [0 "name"]) ))
       (is (= "album__name" (get-in types [1 "name"]) ))
       (is (= "album__year" (get-in types [2 "name"]) )))
 
     (testing "with metadata it is possible to override the GraphQL type's name"
-      (let [types (vec
-                   (eql-ast-node-to-graphql-types
-                    (eql/query->ast
-                     [:album/name
-                      (with-meta '(:album/year) {:graphql/type {:name "released"}})])))]
+      (let [types
+            (vec
+             (eql-ast-node-to-graphql-types
+              (eql/query->ast
+               [:album/name
+                (with-meta
+                  '(:album/year)
+                  {:graphql/type {:name "released"}})])))]
 
         (is (= "released" (get-in types [2 "name"]) ))))
 
@@ -160,10 +160,7 @@
                      [:album/name :album/year]}]))
 
   (eql-ast-node-to-graphql-types
-   (eql/query->ast [:album/name :album/year]))
-
-
-  )
+   (eql/query->ast [:album/name :album/year])))
 
 #_'[{(:all-people
       {:resolver
