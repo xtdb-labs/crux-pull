@@ -117,6 +117,30 @@
          {:type (:type node)})))))
 
   (deftest eql-ast-node-to-graphql-types-test
+    (testing "Root"
+      (let [types (vec
+                   (eql-ast-node-to-graphql-types
+                    (eql/query->ast [])))]
+        (is (= 1 (count types)))
+        (is (= {"kind" "OBJECT"
+                "name" "Root"
+                "fields" []}
+               (first types))))
+
+      (testing "setting the Root object type's description"
+        (let [types (vec
+                     (eql-ast-node-to-graphql-types
+                      (eql/query->ast
+                       (with-meta
+                         []
+                         {:graphql/type {:description "This is the root"}}))))]
+          (is (= 1 (count types)))
+          (is (= {"kind" "OBJECT"
+                  "name" "Root"
+                  "fields" []
+                  "description" "This is the root"}
+                 (first types))))))
+
     (testing "Properties"
       (let [types (vec
                    (eql-ast-node-to-graphql-types
@@ -133,7 +157,7 @@
         (is (= "Root" (get-in types [0 "name"])))
         (is (= "String" (get-in types [1 "name"]))))
 
-      (testing "with metadata it is possible to override the GraphQL field's name"
+      (testing "override the GraphQL field's name with metadata"
         (let [types
               (vec
                (eql-ast-node-to-graphql-types
@@ -145,7 +169,7 @@
 
           (is (= "released" (get-in types [0 "fields" 1 "name"]) ))))
 
-      (testing "with metadata it is possible to provide the GraphQL type's description"
+      (testing "provide the GraphQL field's description with metadata"
         (let [types (vec
                      (eql-ast-node-to-graphql-types
                       (eql/query->ast
