@@ -2,8 +2,47 @@
 
 Experiments in querying https://opencrux.com[Crux].
 
-== EQL
+== Getting started
 
-See https://edn-query-language.org[EQL].
+As per https://github.com/juxt/edge[Edge]
 
-== GraphQL
+----
+(dev)
+(go)
+(reset)
+----
+
+
+== Logic flow
+
+=== Start the system, including a web-server
+
+An integrant system is configured in `test/config.edn`.
+
+A Jetty Ring web-server is started on port 8080.
+
+See link:tree/master/test/crux/pull/server.clj[]
+
+=== Respond with GraphiQL on request to `/`
+
+TODO
+
+=== Handle initial GraphqL introspection query at `/graphql`
+
+==== Parse GraphQL query
+
+TODO
+
+==== Extract types from EQL 'schema'
+
+TODO
+
+==== Respond over HTTP with data on types
+
+TODO
+
+== References
+
+EQL:: https://edn-query-language.org[EQL].
+
+GraphQL:: https://graphql.org
