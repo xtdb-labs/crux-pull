@@ -4,13 +4,18 @@
   (:require
    [integrant.core :as ig]
    [ring.adapter.jetty :as jetty]
-   [crux.api :as crux]))
+   [crux.api :as crux]
+   [clojure.java.io :as io]))
 
 (defmethod ig/init-key ::server [_ {:keys [crux] :as config}]
   (jetty/run-jetty
    (fn [req]
-     {:status 200
-      :body (pr-str (crux/status crux))})
+     (case (:uri req)
+       "/" {:status 200
+            :headers {"content-type" "text/html;charset=utf-8"}
+            :body (slurp (io/resource "index.html"))}
+       {:status 404
+        :body "Not Found"}))
    (conj config [:join? false])))
 
 (defmethod ig/halt-key! ::server [_ server]

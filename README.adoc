@@ -25,7 +25,8 @@ See link:tree/master/test/crux/pull/server.clj[]
 
 === Respond with GraphiQL on request to `/`
 
-TODO
+HTTP requests to http://localhost:8080/[] elicit a response containing the HTML
+of the GraphiQL tool.
 
 === Handle initial GraphqL introspection query at `/graphql`
 
