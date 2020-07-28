@@ -1,6 +1,6 @@
 ;; Copyright © 2020, JUXT LTD.
 
-(ns crux.pull.eql-query-test
+(ns crux.pull.eql-types-test
   (:require
    [clojure.test :refer [deftest is run-tests successful? testing]]
    [edn-query-language.core :as eql]
@@ -197,19 +197,3 @@
    (eql-ast-node-to-graphql-types
     (eql/query->ast [{:favorite-albums
                       [:album/name :album/year]}]))])
-
-;; Reminder of a resolver. This should now go into metadata
-#_'[{(:all-people
-      {:resolver
-       {:crux/query
-        {:find [?p]
-         :where [[?p :person/name ?name]]}
-        :debug false}
-       :graphql/name "allPeople"
-       :graphql/description "Get all the people"
-       :graphql/type "Person"
-       })
-     [(:person/name {:description "A person's name"
-                     :graphql/name "person_name"})
-      (:person/email {:description "A person's email"
-                      :graphql/name "person_email"})]}]
