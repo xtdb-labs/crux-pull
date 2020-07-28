@@ -39,29 +39,33 @@
   See https://spec.graphql.org/June2018/#sec-Schema-Introspection for full
   details."
     [node]
-    (cond->
-        {"kind"
-         (case (:type node)
-           :root "OBJECT"
-           ;; In EQL, this is the furthest we can go, but it doesn't imply that
-           ;; the value returned is a scalar, it could be a map!
-           :prop "SCALAR"
-           ;; A join is always an object
-           :join "OBJECT"
-           (throw
-            (ex-info
-             "Cannot infer GraphQL type kind, EQL type not matched"
-             {:type (:type node)})))}
+    (let [description (get-in node [:meta :graphql/type :description])]
 
-        true
-        (conj ["name" (case (:type node)
-                        :root "Root"
-                        (or
-                         (get-in node [:meta :graphql/type :name])
-                         (graphql-name (:dispatch-key node))))])
+      (cond->
+          {"kind"
+           (case (:type node)
+             :root "OBJECT"
+             ;; In EQL, this is the furthest we can go, but it doesn't imply that
+             ;; the value returned is a scalar, it could be a map!
+             :prop "SCALAR"
+             ;; A join is always an object
+             :join "OBJECT"
+             (throw
+              (ex-info
+               "Cannot infer GraphQL type kind, EQL type not matched"
+               {:type (:type node)})))}
 
-        true
-        (conj ["description" nil]))
+          true
+          (conj ["name"
+                 (case (:type node)
+                   :root "Root"
+                   (or
+                    (get-in node [:meta :graphql/type :name])
+                    (graphql-name (:dispatch-key node))))])
+
+          description
+          (conj ["description" description])))
+
     #_(case (:type node)
         :root
         {"kind" "OBJECT"
@@ -132,15 +136,22 @@
                     (eql/query->ast
                      [:album/name
                       (with-meta '(:album/year) {:graphql/type {:name "released"}})])))]
-        (is (=
-             (+ 1 ;; root
-                2 ;; properties
-                )
-             (count types
-                    )))
-        (is (= "Root" (get-in types [0 "name"]) ))
-        (is (= "album__name" (get-in types [1 "name"]) ))
-        (is (= "released" (get-in types [2 "name"]) )))))
+
+        (is (= "released" (get-in types [2 "name"]) ))))
+
+    (testing "with metadata it is possible to override the GraphQL type's description"
+      (let [types (vec
+                   (eql-ast-node-to-graphql-types
+                    (eql/query->ast
+                     [:album/name
+                      (with-meta
+                        '(:album/year)
+                        {:graphql/type
+                         {:name "released"
+                          :description "The year the album was released"}})])))]
+
+        (is (nil? (get-in types [1 "description"]) ))
+        (is (= "The year the album was released" (get-in types [2 "description"]) )))))
 
   (assert (successful? (run-tests)))
 
