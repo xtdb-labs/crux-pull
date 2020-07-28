@@ -5,7 +5,11 @@
  {edn-query-language/eql {:mvn/version "1.0.0"}
   metosin/jsonista {:mvn/version "0.2.5"}
   ring/ring-core {:mvn/version "1.8.0"}
-  ring/ring-jetty-adapter {:mvn/version "1.8.0"}}
+  ring/ring-jetty-adapter {:mvn/version "1.8.0"}
+
+  juxt/reap
+  {:git/url "https://github.com/juxt/reap.git"
+   :sha "044edb22f267bf2e8a22c482592757382b0b8b1f"}}
 
  :aliases
  {:dev

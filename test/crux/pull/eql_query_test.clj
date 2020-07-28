@@ -34,7 +34,6 @@
 
 (comment
   (do
-
     (assert (successful? (run-tests)))
 
     (exec/exec
