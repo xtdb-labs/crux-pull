@@ -6,13 +6,12 @@
    [ring.adapter.jetty :as jetty]
    [crux.api :as crux]))
 
-(defmethod ig/init-key ::server [_ {:keys [crux]}]
+(defmethod ig/init-key ::server [_ {:keys [crux] :as config}]
   (jetty/run-jetty
    (fn [req]
      {:status 200
       :body (pr-str (crux/status crux))})
-   {:port 8080
-    :join? false}))
+   (conj config [:join? false])))
 
 (defmethod ig/halt-key! ::server [_ server]
   (.stop server))
