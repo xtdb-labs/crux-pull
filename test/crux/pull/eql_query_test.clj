@@ -16,6 +16,8 @@
          (str/replace (name k) "." "_"))
         (str/replace (name k) "." "_"))))
 
+  (declare eql-ast-node-to-graphql-type)
+
   (defn eql-ast-node-to-graphql-field
     "Each field has a kind, name, description"
     [node]
@@ -43,20 +45,10 @@
         ;; to try out the change to inline types. Note that in EQL, there are NO
         ;; types to worry about.
         true
-        (conj
-         ["type"
-          (cond-> {"kind"
-                   (case (:type node)
-                     :prop "SCALAR"
-                     :join "OBJECT")}
-            true (conj ["name"
-                        (case (:type node)
-                          :prop "String"
-                          :join (or
-                                 (get-in node [:meta :graphql/type :name])
-                                 (graphql-name (:dispatch-key node))))])
-            true (conj ["isDeprecated" false])
-            false (conj ["deprecationReason" nil]))]))))
+        (conj ["type" (eql-ast-node-to-graphql-type node)])
+
+        true (conj ["isDeprecated" false])
+        false (conj ["deprecationReason" nil]))))
 
   (defn eql-ast-node-to-graphql-type
     "A type in GraphQL is required to have a kind:
@@ -66,8 +58,7 @@
   See https://spec.graphql.org/June2018/#sec-Schema-Introspection for full
   details."
     [node]
-    (let [description (get-in node [:meta :graphql/type :description])
-          kind (case (:type node)
+    (let [kind (case (:type node)
                  :root "OBJECT"
                  ;; In EQL, this is the furthest we can go, but it doesn't imply that
                  ;; the value returned is a scalar, it could be a map!
@@ -77,7 +68,8 @@
                  (throw
                   (ex-info
                    "Cannot infer GraphQL type kind, EQL type not matched"
-                   {:type (:type node)})))]
+                   {:type (:type node)})))
+          description (get-in node [:meta :graphql/type :description])]
 
       (cond->
           {"kind" kind}
