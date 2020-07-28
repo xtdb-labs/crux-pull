@@ -4,6 +4,8 @@
   (:require
    [integrant.core :as ig]
    [ring.adapter.jetty :as jetty]
+   [crux.pull.alpha.eql.exec :as exec]
+   [crux.pull.alpha.eql.graphql :as graphql]
    [jsonista.core :as json]
    [crux.api :as crux]
    [clojure.java.io :as io]))
@@ -48,7 +50,13 @@
             :headers {"content-type" "application/json"}
             :body (json/write-value-as-string
                    {"data"
-                    {}})}))
+                    (graphql/query
+                     query
+                     (reify exec/Resolver
+                       (lookup [_ ctx property opts]
+                         (get {:greeting "Hello"
+                               :audience "World"} property)))
+                     {})})}))
 
        {:status 404
         :body "Not Found"}))
