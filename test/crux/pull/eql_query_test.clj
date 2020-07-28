@@ -2,57 +2,155 @@
 
 (ns crux.pull.eql-query-test
   (:require
-   [clojure.test :refer [deftest is use-fixtures run-tests successful?]]
+   [clojure.test :refer [deftest is use-fixtures run-tests successful? testing]]
    [edn-query-language.core :as eql]
-
+   [jsonista.core :as json]
    [clojure.string :as str]))
 
 (do
   (defn graphql-name [k]
-    (if (namespace k)
-      (format
-       "%s__%s"
-       (str/replace (namespace k) "." "_")
-       (str/replace (name k) "." "_"))
-      (str/replace (name k) "." "_")))
+    (when k
+      (if (namespace k)
+        (format
+         "%s__%s"
+         (str/replace (namespace k) "." "_")
+         (str/replace (name k) "." "_"))
+        (str/replace (name k) "." "_"))))
 
-  (defn to-field [child]
+  (defn eql-ast-node-to-graphql-field
+    "Each field has a kind, name, description"
+    [child]
     (case (:type child)
-      :prop {"name" (graphql-name (:dispatch-key child))
-             "description" nil
-             ;; Any parameters? Check EDN list
-             "args" []}))
-  (defn type-finder [node]
-    (case (:type node)
-      :root
-      (concat
-       [{"kind" "OBJECT"
+      (:join :prop)
+      {"name" (graphql-name (:dispatch-key child))
+       "description" nil
+       ;; Any parameters? Check EDN list
+       "args" []}
+      (throw
+       (ex-info
+        "Cannot convert to field, type not matched"
+        {:type (:type child)}))))
+
+  (defn eql-ast-node-to-graphql-type
+    "A type in GraphQL has a mandatory kind:
+
+  SCALAR, OBJECT, INTERFACE, UNION, ENUM, INPUT_OBJECT, LIST, NON_NULL.
+
+  See https://spec.graphql.org/June2018/#sec-Schema-Introspection for full
+  details."
+    [node]
+    (cond->
+        {"kind"
+         (case (:type node)
+           :root "OBJECT"
+           ;; In EQL, this is the furthest we can go, but it doesn't imply that
+           ;; the value returned is a scalar, it could be a map!
+           :prop "SCALAR"
+           ;; A join is always an object
+           :join "OBJECT"
+           (throw
+            (ex-info
+             "Cannot infer GraphQL type kind, EQL type not matched"
+             {:type (:type node)})))}
+
+        true
+        (conj ["name" (case (:type node)
+                        :root "Root"
+                        (or
+                         (get-in node [:meta :graphql/type :name])
+                         (graphql-name (:dispatch-key node))))])
+
+        true
+        (conj ["description" nil]))
+    #_(case (:type node)
+        :root
+        {"kind" "OBJECT"
          "name" "Root"
          "description" nil
-         ;; TODO: find fields
-         "fields" (mapv to-field (:children node))
+         "fields" (mapv eql-ast-node-to-graphql-field (:children node))
          "inputFields" nil
          "interfaces" nil
          "enumValues" nil
-         "possibleTypes" nil}]
-       (mapcat type-finder (:children node)))
-      :prop [{"kind" "SCALAR"
-              "name" (graphql-name (:dispatch-key node))
-              "description" nil
-              "fields" nil
-              "inputFields" nil
-              "interfaces" nil
-              "enumValues" nil
-              "possibleTypes" nil}]))
+         "possibleTypes" nil}
+        :prop
+        {"kind" "SCALAR"
+         "name" (graphql-name (:dispatch-key node))
+         "description" nil
+         "fields" nil
+         "inputFields" nil
+         "interfaces" nil
+         "enumValues" nil
+         "possibleTypes" nil}
+        :join
+        {"kind" "OBJECT"
+         "name" (graphql-name (:dispatch-key node))
+         "description" nil
+         "fields" nil
+         "inputFields" nil
+         "interfaces" nil
+         "enumValues" nil
+         "possibleTypes" nil}
+        (throw
+         (ex-info
+          "Cannot extract GraphQL type, EQL type not matched"
+          {:type (:type node)}))))
+
+  (defn eql-ast-node-to-graphql-types [node]
+    (case (:type node)
+      :root
+      (concat
+       [(eql-ast-node-to-graphql-type node)]
+       (mapcat eql-ast-node-to-graphql-types (:children node)))
+      :prop
+      [(eql-ast-node-to-graphql-type node)]
+      :join
+      [(eql-ast-node-to-graphql-type node)]
+      (throw
+       (ex-info
+        "Cannot extract GraphQL type, EQL type not matched"
+        {:type (:type node)}))
+      ))
 
   (deftest to-field-test
-    (is (= 3 (count
-              (type-finder
-               (eql/query->ast [:album/name :album/year]))))))
+    (let [types (vec
+                 (eql-ast-node-to-graphql-types
+                  (eql/query->ast
+                   [:album/name :album/year])))]
+      (is (=
+           (+ 1 ;; root
+              2 ;; properties
+              )
+           (count types
+                  )))
+      (is (= "Root" (get-in types [0 "name"]) ))
+      (is (= "album__name" (get-in types [1 "name"]) ))
+      (is (= "album__year" (get-in types [2 "name"]) )))
+
+    (testing "with metadata it is possible to override the GraphQL type's name"
+      (let [types (vec
+                   (eql-ast-node-to-graphql-types
+                    (eql/query->ast
+                     [:album/name
+                      (with-meta '(:album/year) {:graphql/type {:name "released"}})])))]
+        (is (=
+             (+ 1 ;; root
+                2 ;; properties
+                )
+             (count types
+                    )))
+        (is (= "Root" (get-in types [0 "name"]) ))
+        (is (= "album__name" (get-in types [1 "name"]) ))
+        (is (= "released" (get-in types [2 "name"]) )))))
 
   (assert (successful? (run-tests)))
 
-  (eql/query->ast [:album/name :album/year])
+  (eql-ast-node-to-graphql-types
+   (eql/query->ast [{:favorite-albums
+                     [:album/name :album/year]}]))
+
+  (eql-ast-node-to-graphql-types
+   (eql/query->ast [:album/name :album/year]))
+
 
   )
 
