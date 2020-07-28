@@ -1,0 +1,22 @@
+;; Copyright © 2020, JUXT LTD.
+
+{:paths ["src"]
+ :deps
+ {edn-query-language/eql {:mvn/version "1.0.0"}
+  metosin/jsonista {:mvn/version "0.2.5"}}
+
+ :aliases
+ {:dev
+  {:jvm-opts ["-XX:-OmitStackTraceInFastThrow"]
+
+   :extra-deps
+   {}}
+
+  :test
+  {:extra-paths ["test"]
+   :extra-deps
+   {com.cognitect/test-runner
+    {:git/url "https://github.com/cognitect-labs/test-runner.git"
+     :sha "028a6d41ac9ac5d5c405dfc38e4da6b4cc1255d5"}
+    }
+   :main-opts ["-m" "cognitect.test-runner"]}}}
