@@ -31,6 +31,15 @@ dev> *(reset)*
 ----
 
 
+== Testing
+
+Run the tests with make
+
+[source,,subs="quotes"]
+----
+$ *make test*
+----
+
 == Logic flow
 
 === Start the system, including a web-server
