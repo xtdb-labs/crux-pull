@@ -9,7 +9,7 @@
    [clojure.test :refer [deftest is successful? run-tests]]
    [clojure.string :as str]
    [edn-query-language.core :as eql]
-))
+   ))
 
 (do
   ;; An idea for a directive
@@ -50,6 +50,63 @@
 
       (eql/query->ast eql)))
 
+  ;; The schema determines what is possible to query. The schema also provides
+  ;; information, via metadata, of how to resolve the query at each node. This
+  ;; information is provided to the query, to equip it with the means to help in
+  ;; its execution.
+  (defmulti transplant (fn [ast schema] (:type ast)))
+
+  (defmethod transplant :root [ast schema]
+    (cond-> ast
+      (:meta schema) (conj ast [:meta (:meta schema)])
+      (:children ast) (update :children (fn [children]
+                                          (mapv transplant children (:children schema))))))
+
+  (defmethod transplant :join [ast schema]
+    (cond-> ast
+      (:meta schema) (conj ast [:meta (:meta schema)])
+      (:children schema) (update :children (fn [children]
+                                             (mapv transplant children (:children schema))))))
+
+  (defmethod transplant :prop [ast schema]
+    (cond-> ast
+      (:meta schema) (conj ast [:meta (:meta schema)])))
+
+  (deftest transplant-test
+    (let [results
+          [{:album/name "In Rainbows"
+            :album/artist "Radiohead"
+            :album/year 2007}
+           {:album/name "OK Computer"
+            :album/artist "Radiohead"
+            :album/year 1997}
+           {:album/name "Kraftwerk"
+            :album/artist "Autobahn"
+            :album/year 1974}]
+          schema
+          (eql/query->ast
+           [(with-meta
+              {:favoriteAlbums
+               [(with-meta '(:album/name)
+                  {:lookup (fn [ctx] (get ctx :album/name))})
+                (with-meta '(:album/artist)
+                  {:lookup (fn [ctx] (get ctx :album/artist))})
+                (with-meta '(:album/year)
+                  {:lookup (fn [ctx] (get ctx :album/year))})
+                ]}
+              {:lookup (fn []
+                         ;; For example, do some datalog query.
+                         ;; For this test, just return results
+                         results)})])
+          query (graphql-query-to-eql-ast
+                 "query { favoriteAlbums { album__name album__year }}")
+          result (transplant query schema)]
+
+      (is result)
+      (is (get-in result [:children 0 :meta :lookup]))
+      (is (get-in result [:children 0 :children 0 :meta :lookup]))
+      (is (get-in result [:children 0 :children 1 :meta :lookup]))))
+
   (defn eql-query
     "Query with the given EQL AST, against the given schema, with the given
   resolver."
@@ -64,7 +121,7 @@
     ;; TODO: Validate the ast wrt. the schema
 
     ;; Ultimately, this calls exec/exec
-    (into {} (exec/exec resolver nil ast options)))
+    (into {} (exec/exec resolver nil (cond-> ast schema (transplant schema)) options)))
 
   (deftest graphql-query-to-eql-ast-test
     (is
@@ -88,9 +145,9 @@
         '[:greeting :audience])
 
        (reify exec/Resolver
-         (lookup [_ ctx property opts]
+         (lookup [_ ctx ast opts]
            (get {:greeting "Hello"
-                 :audience "World"} property)))
+                 :audience "World"} (:key ast))))
 
        {}))))
 
@@ -138,8 +195,8 @@
        nil
 
        (reify exec/Resolver
-         (lookup [_ ctx k opts]
-           (case k
+         (lookup [_ ctx ast opts]
+           (case (:key ast)
              :album/name (get ctx :album/name)
              :album/artist (get ctx :album/artist)
              :album/year (get ctx :album/year)
@@ -155,10 +212,55 @@
                :album/year 1974}])))
        {}))))
 
-  (assert (successful? (run-tests)))
+  (deftest graphql-query-with-transplanted-eql-schema-lookup-test
+    (is
+     (=
+      {:favoriteAlbums
+       [#:album{:name "In Rainbows", :year "Radiohead"}
+        #:album{:name "OK Computer", :year "Radiohead"}
+        #:album{:name "Kraftwerk", :year "Autobahn"}]}
+      (let [results
+            [{:album/name "In Rainbows"
+              :album/artist "Radiohead"
+              :album/year 2007}
+             {:album/name "OK Computer"
+              :album/artist "Radiohead"
+              :album/year 1997}
+             {:album/name "Kraftwerk"
+              :album/artist "Autobahn"
+              :album/year 1974}]]
 
-  ;; Let's try to query for the __schema
-  #_(reap/decode
+        (eql-query
+         (graphql-query-to-eql-ast
+          "query { favoriteAlbums { album__name album__year }}")
+
+         (eql/query->ast
+          [(with-meta
+             {:favoriteAlbums
+              [(with-meta '(:album/name)
+                 {:lookup (fn [ctx] (get ctx :album/name))})
+               (with-meta '(:album/artist)
+                 {:lookup (fn [ctx] (get ctx :album/artist))})
+               (with-meta '(:album/year)
+                 {:lookup (fn [ctx] (get ctx :album/year))})
+               ]}
+             {:lookup (fn [ctx]
+                        ;; For example, do some datalog query.
+                        ;; For this test, just return results
+                        results)})])
+
+         (reify exec/Resolver
+           (lookup [_ ctx ast opts]
+             ((:lookup (:meta ast)) ctx)))
+         {})))))
+
+  (assert (successful? (run-tests))))
+
+;; TODO
+;; "query { favoriteAlbums(artist: \"Radiohead\") { album__name album__year }}"
+
+;; Let's try to query for the __schema
+#_(reap/decode
      reap-graphql/Document
      "query {
       __schema {
@@ -170,4 +272,3 @@
       }
     }
   ")
-  )

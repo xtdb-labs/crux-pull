@@ -9,21 +9,24 @@
 ;; opts = per-query options
 
 (defprotocol Resolver
-  (lookup [_ ctx k opts] "Resolve the given key against the given ctx"))
+  (lookup [_ ctx ast opts] "Resolve the given ast against the given ctx"))
 
 (defmulti exec (fn [resolver ctx ast opts] (:type ast)))
 
 (defmethod exec :root [resolver ctx ast opts]
-    (vec (keep #(exec resolver ctx % opts) (:children ast))))
+  (vec (keep #(exec resolver ctx % opts) (:children ast))))
 
 (defmethod exec :prop [resolver ctx ast opts]
-  (when-let [v (lookup resolver ctx (:key ast) opts)]
+  (when-let [v (lookup resolver ctx ast opts)]
     [(:key ast) v]))
 
 (defmethod exec :join [resolver ctx ast opts]
-  (when-let [coll (lookup resolver ctx (:key ast) opts)]
+  (when-let [coll (lookup resolver ctx ast opts)]
     [(:key ast)
      (for [i coll]
        (into {}
              (for [child (:children ast)]
                (exec resolver i child opts))))]))
+
+;; TODO: Field Ordering
+;; TODO: Result Coercion
