@@ -11,3 +11,7 @@
   (when-not (contains? schema ast)
     {:error {:message "Property not in schema"
              :property (:key ast)}}))
+
+(defmethod validate :join [schema ast opts]
+  :ok
+  )

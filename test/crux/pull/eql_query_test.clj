@@ -4,7 +4,6 @@
   (:require
    [clojure.test :refer [deftest is run-tests successful? testing]]
    [crux.pull.alpha.eql.exec :as exec]
-   [crux.pull.alpha.eql.validate :as validate]
    [edn-query-language.core :as eql]))
 
 (comment
@@ -51,29 +50,54 @@
          (eql/query->ast '[:greeting :dummy :audience])
          {}))))
 
+    (defmulti validate (fn [schema ast opts] (:type ast)))
+
+    (defmethod validate :root [schema ast opts]
+      (seq (vec (keep #(validate (:children schema) % opts) (:children ast)))))
+
+    (defmethod validate :prop [schema ast opts]
+      (when-not (contains?
+                 (set (map #(select-keys % [:type :key]) schema))
+                 (select-keys ast [:type :key]))
+        {:error {:message "Property not in schema"
+                 :property (:key ast)}}))
+
+    (defmethod validate :join [schema ast opts]
+      {:schema schema :ast ast}
+      )
+
+
     ;; Mid-level: Query with EQL, but the EQL is subject to validation according to the schema
     ;; Used by Clojure app developers, e.g. UI devs
     (deftest eql-validation-test
       (is
        (=
         [{:error {:message "Property not in schema", :property :dummy}}]
-        (validate/validate
+        (validate
          (eql/query->ast '[:greeting :audience])
          (eql/query->ast '[:greeting :dummy :audience])
          {})))
 
       (is
        (nil?
-        (validate/validate
+        (validate
          (eql/query->ast '[:greeting :audience])
          (eql/query->ast '[:greeting :audience])
          {}))))
 
     (assert (successful? (run-tests)))
 
+    ;; Join schema
     ;; Work on validation of joins
+    (validate
+     (eql/query->ast
+      '[{:favorite-albums
+         [:album/name :album/year]}])
 
+     ;; Bad query
+     (eql/query->ast
+      '[{:albums
+         [:album/name]}])
+     {})))
 
-    ;; GraphQL-level: Query with GraphQL, calls down to 'mid-level'.
-
-    ))
+;; GraphQL-level: Query with GraphQL, calls down to 'mid-level'.

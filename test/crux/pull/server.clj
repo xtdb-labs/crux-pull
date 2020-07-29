@@ -5,7 +5,7 @@
    [integrant.core :as ig]
    [ring.adapter.jetty :as jetty]
    [crux.pull.alpha.eql.exec :as exec]
-   [crux.pull.alpha.eql.graphql :as graphql]
+   [crux.pull.graphql-test :as graphql]
    [jsonista.core :as json]
    [crux.api :as crux]
    [clojure.java.io :as io]))
@@ -50,8 +50,9 @@
             :headers {"content-type" "application/json"}
             :body (json/write-value-as-string
                    {"data"
-                    (graphql/query
-                     query
+                    (graphql/eql-query
+                     (graphql/graphql-query-to-eql-ast query)
+                     [] ; schema, not yet used
                      (reify exec/Resolver
                        (lookup [_ ctx property opts]
                          (get {:greeting "Hello"
