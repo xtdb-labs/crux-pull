@@ -75,21 +75,21 @@
         (cond->
             {"kind" kind}
 
-          true
-          (conj ["name"
-                 (case (:type node)
-                   :root "Root"
-                   :prop "String"
-                   :join
-                   (or
-                    (get-in node [:meta :graphql/type :name])
-                    (graphql-name (:dispatch-key node))))])
+            true
+            (conj ["name"
+                   (case (:type node)
+                     :root "Root"
+                     :prop "String"
+                     :join
+                     (or
+                      (get-in node [:meta :graphql/type :name])
+                      (graphql-name (:dispatch-key node))))])
 
-          description
-          (conj ["description" description])
+            description
+            (conj ["description" description])
 
-          (#{"OBJECT" "INTERFACE"} kind)
-          (conj ["fields" (mapv eql-ast-node-to-graphql-field (:children node))]))))
+            (#{"OBJECT" "INTERFACE"} kind)
+            (conj ["fields" (mapv eql-ast-node-to-graphql-field (:children node))]))))
 
     (defn eql-ast-node-to-graphql-types [node]
       (distinct
@@ -160,7 +160,7 @@
                       '(:album/year)
                       {:graphql/field {:name "released"}})])))]
 
-            (is (= "released" (get-in types [0 "fields" 1 "name"]) ))))
+            (is (= "released" (get-in types [0 "fields" 1 "name"])))))
 
         (testing "provide the GraphQL field's description with metadata"
           (let [types (vec
@@ -196,5 +196,7 @@
                        [:album/name :album/year]}])
      :=>
      (eql-ast-node-to-graphql-types
-      (eql/query->ast [{:favorite-albums
-                        [:album/name :album/year]}]))]))
+      (eql/query->ast (with-meta
+                        [{:favorite-albums
+                          [:album/name :album/year]}]
+                        {:graphql/type {:description "The root object"}})))]))

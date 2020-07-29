@@ -26,8 +26,13 @@
   (let [op
         (first
          (reap/decode reap-graphql/Document query-doc))
+        _ (assert (= (:operation-type op) "query"))
         selection-set (:selection-set op)
         eql (mapv selection-to-eql-term selection-set)
+
         ast (eql/query->ast eql)]
-    (assert (= (:operation-type op) "query"))
+
+    ;; This ast needs to be 'within the bounds of', or 'framed by' the 'schema' ast
+    ;; validation
+
     (into {} (exec/exec resolver nil ast opts))))

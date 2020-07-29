@@ -16,6 +16,6 @@
 (defmethod exec :root [resolver ctx ast opts]
     (vec (keep #(exec resolver ctx % opts) (:children ast))))
 
-  (defmethod exec :prop [resolver ctx ast opts]
-    (when-let [v (lookup resolver ctx (:key ast) opts)]
-      [(:key ast) v]))
+(defmethod exec :prop [resolver ctx ast opts]
+  (when-let [v (lookup resolver ctx (:key ast) opts)]
+    [(:key ast) v]))
