@@ -1,6 +1,6 @@
 ;; Copyright © 2020, JUXT LTD.
 
-(ns crux.pull.graphql-query-test
+(ns crux.pull.graphql-test
   (:require
    [juxt.reap.alpha.graphql :as reap-graphql]
    [juxt.reap.alpha.api :as reap]
