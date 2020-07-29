@@ -59,7 +59,6 @@
         [{:error {:message "Property not in schema", :property :dummy}}]
         (validate/validate
          (eql/query->ast '[:greeting :audience])
-         nil
          (eql/query->ast '[:greeting :dummy :audience])
          {})))
 
@@ -67,7 +66,6 @@
        (nil?
         (validate/validate
          (eql/query->ast '[:greeting :audience])
-         nil
          (eql/query->ast '[:greeting :audience])
          {}))))
 
