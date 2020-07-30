@@ -36,11 +36,12 @@
                  (eql-keyword "zip_foo__foo_bar__zip"))))
 
   (defn selection-to-eql-term [[_ {:keys [name arguments directives selection-set]}]]
-    (if selection-set
-      {(eql-keyword name) (mapv selection-to-eql-term selection-set)}
-      (eql-keyword name)))
+    (let [add-arguments (fn [x] (if (not-empty arguments) (list x arguments) x))]
+      (if selection-set
+        {(add-arguments (eql-keyword name)) (mapv selection-to-eql-term selection-set)}
+        (add-arguments (eql-keyword name)))))
 
-  (defn graphql-query-to-eql-ast [query-doc]
+  (defn graphql-query-to-eql [query-doc]
     (let [op
           (first
            (reap/decode reap-graphql/Document query-doc))
@@ -48,7 +49,10 @@
           selection-set (:selection-set op)
           eql (mapv selection-to-eql-term selection-set)]
 
-      (eql/query->ast eql)))
+      eql))
+
+  (defn graphql-query-to-eql-ast [query-doc]
+    (eql/query->ast (graphql-query-to-eql query-doc)))
 
   ;; The schema determines what is possible to query. The schema also provides
   ;; information, via metadata, of how to resolve the query at each node. This
@@ -254,15 +258,57 @@
              ((:lookup (:meta ast)) ctx)))
          {})))))
 
-  (assert (successful? (run-tests))))
+  (deftest graphql-filter-by-arguments-test
+    (is
+     (=
+      {:favoriteAlbums
+       [#:album{:name "In Rainbows", :year "Radiohead"}
+        #:album{:name "OK Computer", :year "Radiohead"}]}
 
-;; TODO
-;; "query { favoriteAlbums(artist: \"Radiohead\") { album__name album__year }}"
+      (let [results
+            [{:album/name "In Rainbows"
+              :album/artist "Radiohead"
+              :album/year 2007}
+             {:album/name "OK Computer"
+              :album/artist "Radiohead"
+              :album/year 1997}
+             {:album/name "Autobahn"
+              :album/artist "Kraftwerk"
+              :album/year 1974}]]
+
+        (eql-query
+         (graphql-query-to-eql-ast
+          "query { favoriteAlbums(artist: \"Radiohead\") { album__name album__year }}")
+
+         (eql/query->ast
+          [(with-meta
+             {:favoriteAlbums
+              [(with-meta '(:album/name)
+                 {:lookup (fn [ctx ast] (get ctx :album/name))})
+               (with-meta '(:album/artist)
+                 {:lookup (fn [ctx ast] (get ctx :album/artist))})
+               (with-meta '(:album/year)
+                 {:lookup (fn [ctx ast] (get ctx :album/year))})]}
+
+             {:lookup (fn [ctx ast]
+                        (if-let [artist (get-in ast [:params "artist"])]
+                          (filter
+                           (fn [album] (= (:album/artist album) artist))
+                           results)
+                          results))})])
+
+         (reify exec/Resolver
+           (lookup [_ ctx ast opts]
+             ((:lookup (:meta ast)) ctx ast)))
+
+         {})))))
+
+    (assert (successful? (run-tests))))
 
 ;; Let's try to query for the __schema
 #_(reap/decode
-     reap-graphql/Document
-     "query {
+   reap-graphql/Document
+   "query {
       __schema {
         queryType { name }
         types {
