@@ -35,7 +35,12 @@
     org.clojure/tools.logging {:mvn/version "0.5.0-alpha"}
 
     juxt/crux-core {:mvn/version "RELEASE"}
-    juxt/crux-test {:mvn/version "RELEASE"}}}
+    juxt/crux-test {:mvn/version "RELEASE"}
+
+    ;; For benchmarking against reap
+    clj-antlr {:mvn/version "0.2.5"}
+
+    criterium {:mvn/version "0.4.5"}}}
 
   :test
   {:extra-paths ["test"]
