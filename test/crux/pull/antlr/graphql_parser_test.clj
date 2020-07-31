@@ -1,17 +1,21 @@
-(ns crux.pull.graphql-parser-test
+;; Copyright © 2020, JUXT LTD.
+
+(ns crux.pull.antlr.graphql-parser-test
   (:require
-   [clojure.test :refer [deftest is are testing]]
    [clj-antlr.core :as antlr]
    [juxt.reap.alpha.graphql :as reap-graphql]
    [juxt.reap.alpha.api :as reap]
-   [criterium.core :as crit]
    [clojure.java.io :as io]
    [clojure.walk :refer [postwalk]]))
 
-(def parser
-  (antlr/parser
-   (slurp (io/resource "grammars/GraphQL.g4"))
-   {:format :sexp}))
+(comment
+  (require '[criterium.core :as crit]))
+
+(comment
+  (def parser
+    (antlr/parser
+     (slurp (io/resource "grammars/GraphQL.g4"))
+     {:format :sexp})))
 
 (comment
   (crit/quick-bench
