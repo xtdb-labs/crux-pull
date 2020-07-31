@@ -9,7 +9,7 @@
 
   juxt/reap
   {:git/url "https://github.com/juxt/reap.git"
-   :sha "ec8c50c74781b98a5a92d2fd8aaf845fe1c42eab"}}
+   :sha "6e6a1ff9bee0f68f06d7dbd1bd01e1148ab9da7a"}}
 
  :aliases
  {:dev
