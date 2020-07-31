@@ -3,13 +3,113 @@
 (ns crux.pull.graphql-test
   (:require
    [juxt.reap.alpha.graphql :as reap-graphql]
+   [juxt.reap.alpha.graphql.util :as reap-graphql-util]
+   [jsonista.core :as json]
    [juxt.reap.alpha.api :as reap]
    [crux.pull.alpha.eql.exec :as exec]
+   [crux.pull.eql-types-test :refer [eql-ast-node-to-graphql-types]]
 ;;   [crux.pull.alpha.eql.graphql :as graphql]
    [clojure.test :refer [deftest is successful? run-tests]]
    [clojure.string :as str]
    [edn-query-language.core :as eql]
    ))
+
+;; GraphiQL introspection query on init
+(def introspection-query
+  "query IntrospectionQuery {
+      __schema {
+
+        queryType { name }
+        mutationType { name }
+        subscriptionType { name }
+        types {
+          ...FullType
+        }
+        directives {
+          name
+          description
+
+          locations
+          args {
+            ...InputValue
+          }
+        }
+      }
+    }
+
+    fragment FullType on __Type {
+      kind
+      name
+      description
+      fields(includeDeprecated: true) {
+        name
+        description
+        args {
+          ...InputValue
+        }
+        type {
+          ...TypeRef
+        }
+        isDeprecated
+        deprecationReason
+      }
+      inputFields {
+        ...InputValue
+      }
+      interfaces {
+        ...TypeRef
+      }
+      enumValues(includeDeprecated: true) {
+        name
+        description
+        isDeprecated
+        deprecationReason
+      }
+      possibleTypes {
+        ...TypeRef
+      }
+    }
+
+    fragment InputValue on __InputValue {
+      name
+      description
+      type { ...TypeRef }
+      defaultValue
+    }
+
+    fragment TypeRef on __Type {
+      kind
+      name
+      ofType {
+        kind
+        name
+        ofType {
+          kind
+          name
+          ofType {
+            kind
+            name
+            ofType {
+              kind
+              name
+              ofType {
+                kind
+                name
+                ofType {
+                  kind
+                  name
+                  ofType {
+                    kind
+                    name
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ")
 
 (do
   ;; An idea for a directive
@@ -23,15 +123,25 @@
     (when s
       (let [[ns n z] (str/split s #"__")]
         (when z (throw (ex-info "Can only have one double-underscore in a name" {})))
-        (if n
+        (cond
+          ;; We want 'reserved' GraphQL keywords such as __schema to result in
+          ;; :__schema
+          (and ns (str/blank? ns))
+          (keyword (str "__" n))
+          ;; Input contains a __ which we convert to a namespaced keyword
+          n
           (keyword
            (str/replace ns "_" ".")
            (str/replace n "_" "."))
+          ;; Input doesn't contain __, so convert to a non-namespaced keyword
+          :else
+          ;; TODO: Convert camel casing to kebab case
           (keyword (str/replace ns "_" "."))))))
 
   (deftest eql-keyword-test
     (is (= :a/b (eql-keyword "a__b")))
     (is (= :a.b/c.d (eql-keyword "a_b__c_d")))
+    (is (= :__schema (eql-keyword "__schema")))
     (is (thrown? clojure.lang.ExceptionInfo
                  (eql-keyword "zip_foo__foo_bar__zip"))))
 
@@ -42,13 +152,15 @@
         (add-arguments (eql-keyword name)))))
 
   (defn graphql-query-to-eql [query-doc]
-    (let [op
-          (first
-           (reap/decode reap-graphql/Document query-doc))
+    (let [doc (reap/decode reap-graphql/Document query-doc)
+          doc (reap-graphql-util/deref-fragments doc)
+          ;; TODO: Currently we're just ripping out the first document, but the
+          ;; GraphQL introspection query _tells_ us which name of query to use!
+          op (first doc)
           _ (assert (= (:operation-type op) "query"))
+
           selection-set (:selection-set op)
           eql (mapv selection-to-eql-term selection-set)]
-
       eql))
 
   (defn graphql-query-to-eql-ast [query-doc]
@@ -56,27 +168,49 @@
 
   ;; The schema determines what is possible to query. The schema also provides
   ;; information, via metadata, of how to resolve the query at each node. This
-  ;; information is provided to the query, to equip it with the means to help in
-  ;; its execution.
-  (defmulti transplant (fn [ast schema] (:type ast)))
+  ;; information is provided to the query, to equip it with the means to execute
+  ;; itself unaided. This is also the step where extra properties can be
+  ;; deduced, for example, for introspection.
+  (defmulti prepare-query (fn [ast schema] (:type ast)))
 
-  (defmethod transplant :root [ast schema]
+  (defn prepare-query-join [ast schema]
     (cond-> ast
       (:meta schema) (conj ast [:meta (:meta schema)])
-      (:children ast) (update :children (fn [children]
-                                          (mapv transplant children (:children schema))))))
+      (:children ast)
+      (update
+       :children
+       (fn [children]
+         (vec
+          (for [child children
+                :let [child-schema
+                      ;; Lookup appropriate schema
+                      (some
+                       (fn [sch]
+                         (when (= (:dispatch-key child) (:dispatch-key sch))
+                           sch))
+                       (:children schema))]]
+            (if child-schema
+              (prepare-query
+               child child-schema)
+              ;; If there is no schema, the query is trying to go beyond the
+              ;; frame of the schema
+              (throw
+               (ex-info
+                "Validation error, query violates schema"
+                {:query child
+                 :schema-keys (map :dispatch-key (:children schema))})))))))))
 
-  (defmethod transplant :join [ast schema]
-    (cond-> ast
-      (:meta schema) (conj ast [:meta (:meta schema)])
-      (:children schema) (update :children (fn [children]
-                                             (mapv transplant children (:children schema))))))
+  (defmethod prepare-query :root [ast schema]
+    (prepare-query-join ast schema))
 
-  (defmethod transplant :prop [ast schema]
+  (defmethod prepare-query :join [ast schema]
+    (prepare-query-join ast schema))
+
+  (defmethod prepare-query :prop [ast schema]
     (cond-> ast
       (:meta schema) (conj ast [:meta (:meta schema)])))
 
-  (deftest transplant-test
+  (deftest prepare-query-test
     (let [results
           [{:album/name "In Rainbows"
             :album/artist "Radiohead"
@@ -104,7 +238,7 @@
                          results)})])
           query (graphql-query-to-eql-ast
                  "query { favoriteAlbums { album__name album__year }}")
-          result (transplant query schema)]
+          result (prepare-query query schema)]
 
       (is result)
       (is (get-in result [:children 0 :meta :lookup]))
@@ -114,18 +248,8 @@
   (defn eql-query
     "Query with the given EQL AST, against the given schema, with the given
   resolver."
-    [ast schema resolver options]
-
-    ;; TODO: Add __schema, __type etc. to every relevant node in the schema to
-    ;; provide automatic introspection.
-
-    ;; The given ast needs to be executed 'within the bounds of', or 'framed by'
-    ;; the 'schema' ast (with validation)
-
-    ;; TODO: Validate the ast wrt. the schema
-
-    ;; Ultimately, this calls exec/exec
-    (into {} (exec/exec resolver nil (cond-> ast schema (transplant schema)) options)))
+    [ast resolver options]
+    (into {} (exec/exec resolver nil ast options)))
 
   (deftest graphql-query-to-eql-ast-test
     (is
@@ -142,11 +266,11 @@
      (=
       {:greeting "Hello" :audience "World"}
       (eql-query
-       (graphql-query-to-eql-ast
-        "query { greeting audience }")
-
-       (eql/query->ast
-        '[:greeting :audience])
+       (prepare-query
+        (graphql-query-to-eql-ast
+         "query { greeting audience }")
+        (eql/query->ast
+         '[:greeting :audience]))
 
        (reify exec/Resolver
          (lookup [_ ctx ast opts]
@@ -158,25 +282,25 @@
   (deftest graphql-selection-to-eql-term-test
     (is
      (=
-      {:type :root,
+      {:type :root
        :children
-       [{:type :join,
-         :dispatch-key :favorite-albums,
-         :key :favorite-albums,
-         :query [:album/name :album/year],
+       [{:type :join
+         :dispatch-key :favorite-albums
+         :key :favorite-albums
+         :query [:album/name :album/year]
          :children
-         [{:type :prop, :dispatch-key :album/name, :key :album/name}
-          {:type :prop, :dispatch-key :album/year, :key :album/year}]}]}
+         [{:type :prop :dispatch-key :album/name :key :album/name}
+          {:type :prop :dispatch-key :album/year :key :album/year}]}]}
 
       (->>
-       [{:operation-type "query",
+       [{:operation-type "query"
          :selection-set
          [[:field
-           {:name "favorite-albums",
-            :arguments {},
+           {:name "favorite-albums"
+            :arguments {}
             :selection-set
-            [[:field {:name "album__name", :arguments {}}]
-             [:field {:name "album__year", :arguments {}}]]}]]}]
+            [[:field {:name "album__name" :arguments {}}]
+             [:field {:name "album__year" :arguments {}}]]}]]}]
        first
        :selection-set
        (mapv selection-to-eql-term)
@@ -187,16 +311,13 @@
     (is
      (=
       {:favoriteAlbums
-       [#:album{:name "In Rainbows", :year 2007}
-        #:album{:name "OK Computer", :year 1997}
-        #:album{:name "Kraftwerk", :year 1974}]}
+       [#:album{:name "In Rainbows" :year 2007}
+        #:album{:name "OK Computer" :year 1997}
+        #:album{:name "Kraftwerk" :year 1974}]}
 
       (eql-query
        (graphql-query-to-eql-ast
         "query { favoriteAlbums { album__name album__year }}")
-
-       ;; No schema yet
-       nil
 
        (reify exec/Resolver
          (lookup [_ ctx ast opts]
@@ -216,13 +337,13 @@
                :album/year 1974}])))
        {}))))
 
-  (deftest graphql-query-with-transplanted-eql-schema-lookup-test
+  (deftest graphql-prepared-query-lookup-test
     (is
      (=
       {:favoriteAlbums
-       [#:album{:name "In Rainbows", :year "Radiohead"}
-        #:album{:name "OK Computer", :year "Radiohead"}
-        #:album{:name "Kraftwerk", :year "Autobahn"}]}
+       [#:album{:name "In Rainbows" :year 2007}
+        #:album{:name "OK Computer" :year 1997}
+        #:album{:name "Kraftwerk" :year 1974}]}
       (let [results
             [{:album/name "In Rainbows"
               :album/artist "Radiohead"
@@ -235,23 +356,67 @@
               :album/year 1974}]]
 
         (eql-query
-         (graphql-query-to-eql-ast
-          "query { favoriteAlbums { album__name album__year }}")
+         (prepare-query
+          (graphql-query-to-eql-ast
+           "query { favoriteAlbums { album__name album__year }}")
 
-         (eql/query->ast
-          [(with-meta
-             {:favoriteAlbums
-              [(with-meta '(:album/name)
-                 {:lookup (fn [ctx] (get ctx :album/name))})
-               (with-meta '(:album/artist)
-                 {:lookup (fn [ctx] (get ctx :album/artist))})
-               (with-meta '(:album/year)
-                 {:lookup (fn [ctx] (get ctx :album/year))})
-               ]}
-             {:lookup (fn [ctx]
-                        ;; For example, do some datalog query.
-                        ;; For this test, just return results
-                        results)})])
+          (eql/query->ast
+           [(with-meta
+              {:favoriteAlbums
+               [(with-meta '(:album/name)
+                  {:lookup (fn [ctx] (get ctx :album/name))})
+                (with-meta '(:album/artist)
+                  {:lookup (fn [ctx] (get ctx :album/artist))})
+                (with-meta '(:album/year)
+                  {:lookup (fn [ctx] (get ctx :album/year))})
+                ]}
+              {:lookup (fn [ctx]
+                         ;; For example, do some datalog query.
+                         ;; For this test, just return results
+                         results)})]))
+
+         (reify exec/Resolver
+           (lookup [_ ctx ast opts]
+             ((:lookup (:meta ast)) ctx)))
+         {})))))
+
+  (deftest graphql-query-prepare-query-substructure-lookup-test
+    (is
+     (=
+      {:favoriteAlbums
+       [#:album{:name "In Rainbows" :year 2007}
+        #:album{:name "OK Computer" :year 1997}
+        #:album{:name "Kraftwerk" :year 1974}]}
+      (let [results
+            [{:album/name "In Rainbows"
+              :album/artist "Radiohead"
+              :album/year 2007}
+             {:album/name "OK Computer"
+              :album/artist "Radiohead"
+              :album/year 1997}
+             {:album/name "Kraftwerk"
+              :album/artist "Autobahn"
+              :album/year 1974}]]
+
+        (eql-query
+         (prepare-query
+          (graphql-query-to-eql-ast
+           "query { favoriteAlbums { album__name album__year }}")
+
+          (eql/query->ast
+           [(with-meta
+              {:favoriteAlbums
+               [(with-meta '(:album/name)
+                  {:lookup (fn [ctx] (get ctx :album/name))})
+                (with-meta '(:album/artist)
+                  {:lookup (fn [ctx] (get ctx :album/artist))})
+                (with-meta '(:album/year)
+                  {:lookup (fn [ctx] (get ctx :album/year))})
+                ]}
+              {:lookup (fn [ctx]
+                         ;; For example, do some datalog query.
+                         ;; For this test, just return results
+                         results)})]))
 
          (reify exec/Resolver
            (lookup [_ ctx ast opts]
@@ -262,8 +427,8 @@
     (is
      (=
       {:favoriteAlbums
-       [#:album{:name "In Rainbows", :year "Radiohead"}
-        #:album{:name "OK Computer", :year "Radiohead"}]}
+       [#:album{:name "In Rainbows" :year 2007}
+        #:album{:name "OK Computer" :year 1997}]}
 
       (let [results
             [{:album/name "In Rainbows"
@@ -277,25 +442,26 @@
               :album/year 1974}]]
 
         (eql-query
-         (graphql-query-to-eql-ast
-          "query { favoriteAlbums(artist: \"Radiohead\") { album__name album__year }}")
+         (prepare-query
+          (graphql-query-to-eql-ast
+           "query { favoriteAlbums(artist: \"Radiohead\") { album__name album__year }}")
 
-         (eql/query->ast
-          [(with-meta
-             {:favoriteAlbums
-              [(with-meta '(:album/name)
-                 {:lookup (fn [ctx ast] (get ctx :album/name))})
-               (with-meta '(:album/artist)
-                 {:lookup (fn [ctx ast] (get ctx :album/artist))})
-               (with-meta '(:album/year)
-                 {:lookup (fn [ctx ast] (get ctx :album/year))})]}
+          (eql/query->ast
+           [(with-meta
+              {:favoriteAlbums
+               [(with-meta '(:album/name)
+                  {:lookup (fn [ctx _] (get ctx :album/name))})
+                (with-meta '(:album/artist)
+                  {:lookup (fn [ctx _] (get ctx :album/artist))})
+                (with-meta '(:album/year)
+                  {:lookup (fn [ctx _] (get ctx :album/year))})]}
 
-             {:lookup (fn [ctx ast]
-                        (if-let [artist (get-in ast [:params "artist"])]
-                          (filter
-                           (fn [album] (= (:album/artist album) artist))
-                           results)
-                          results))})])
+              {:lookup (fn [_ ast]
+                         (if-let [artist (get-in ast [:params "artist"])]
+                           (filter
+                            (fn [album] (= (:album/artist album) artist))
+                            results)
+                           results))})]))
 
          (reify exec/Resolver
            (lookup [_ ctx ast opts]
@@ -303,18 +469,153 @@
 
          {})))))
 
-    (assert (successful? (run-tests))))
 
-;; Let's try to query for the __schema
-#_(reap/decode
-   reap-graphql/Document
-   "query {
-      __schema {
-        queryType { name }
-        types {
-          kind
-          name
-        }
-      }
-    }
-  ")
+
+  (assert (successful? (run-tests)))
+
+  ;; Let's try to query for the __schema
+  (let [schema
+        (eql/query->ast
+         [(with-meta
+            {:favoriteAlbums
+             [(with-meta '(:album/name) {})
+              (with-meta '(:album/artist) {})
+              (with-meta '(:album/year) {})]}
+            {:params {:artist
+                      {:graphql/description "Filter albums that have an `album__artist` fields which matches this argument value, if given."
+                       :graphql/type
+                       {:kind "SCALAR"
+                        :name "String"}}}})])
+
+        ;; Add GraphQL intropsection
+        typeref [:kind
+                 :name
+                 {:ofType
+                  [:kind :name
+                   {:ofType
+                    [:kind
+                     :name
+                     {:ofType
+                      [:kind
+                       :name
+                       {:ofType
+                        [:kind
+                         :name
+                         {:ofType
+                          [:kind
+                           :name
+                           {:ofType
+                            [:kind
+                             :name
+                             {:ofType
+                              [:kind
+                               :name
+                               {:ofType
+                                [:kind
+                                 :name
+                                 {:ofType
+                                  [:kind
+                                   :name]}]}]}]}]}]}]}]}]}]
+        schema
+        (->
+         schema
+         (update
+          :children
+          conj
+          (eql/expr->ast
+           {:__schema
+            [(with-meta
+               {:types
+                [:kind
+                 :name
+                 :description
+                 {:fields
+                  [:name
+                   :description
+                   {:args [:name
+                           :description
+                           {:type typeref}
+                           :defaultValue]}
+                   {:type typeref}
+                   :isDeprecated
+                   :deprecationReason]}
+                 {:interfaces typeref}
+                 {:possibleTypes typeref}
+                 {:enumValues [:name :description :isDeprecated :deprecationReason]}
+                 {:inputFields [:name :description {:type typeref} :defaultValue]}
+                 {:ofType typeref}
+                 ]}
+               {:lookup (fn lookup-type [ctx ast] nil)})
+             {:queryType typeref}
+             {:mutationType typeref}
+             {:subscriptionType typeref}
+             {:directives [:name :description :locations {:args [:name :description {:type typeref} :defaultValue]}]}]}))
+         )]
+
+    #_(vec (eql-ast-node-to-graphql-types schema))
+    #_(graphql-query-to-eql-ast introspection-query)
+
+    #_(prepare-query
+     (graphql-query-to-eql-ast
+      introspection-query)
+     schema)
+
+    (json/read-value
+       (json/write-value-as-string
+        {:data
+         (eql-query
+          (prepare-query
+           (graphql-query-to-eql-ast introspection-query)
+           schema)
+
+          ;; This is a GraphQL-aware resolver, which can infer implicit types and
+          ;; respond to queries on them
+          (reify exec/Resolver
+            (lookup [_ ctx ast opts]
+              (if (= (:key ast) :__schema)
+                [{:queryType {:name "Root"}
+                  :mutationType nil
+                  :subscriptionType nil
+                  :types (vec (eql-ast-node-to-graphql-types schema))}]
+
+                ;; Default resolution if no look on schema is as follows:
+                (case (:type ast)
+                  :join
+                  (get ctx (:key ast))
+                  :prop (get ctx (:key ast))
+                  ))))
+          {})}))))
+
+;;(graphql-query-to-eql-ast introspection-query)
+;; Target:
+#_{"data"
+ {"__schema"
+  {"queryType"
+   {"name" "Root"}
+   "types"
+   [{"kind" "OBJECT" "name" "Root"}
+    {"kind" "OBJECT"
+     "name" "favouriteAlbums"
+     "args" [{"name" "artist"
+              "type" {"kind" "SCALAR" "name" "String"}}]
+     "type" {"kind" "LIST"
+             "name" nil
+             "ofType"
+             {"kind" "OBJECT"
+              "name" "Album"
+              "ofType" nil}}}
+    {"kind" "OBJECT"
+     "name" "Album"
+     "fields"
+     [{"name" "album__name"
+       "type"
+       {"kind" "SCALAR"
+        "name" "String"}}
+      {"name" "album__artist"
+       "type"
+       {"kind" "SCALAR"
+        "name" "String"}}
+      {"name" "album__year"
+       "type"
+       {"kind" "SCALAR"
+        "name" "Int"}}]}]}}}

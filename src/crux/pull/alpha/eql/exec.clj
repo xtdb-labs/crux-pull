@@ -24,9 +24,10 @@
   (when-let [coll (lookup resolver ctx ast opts)]
     [(:key ast)
      (for [i coll]
+       ;; This destroys order. Consider using an ordered map
+       ;; (e.g. org.flatland/ordered "1.5.2")
        (into {}
-             (for [child (:children ast)]
-               (exec resolver i child opts))))]))
+             (keep #(exec resolver i % opts) (:children ast))))]))
 
 ;; TODO: Field Ordering
 ;; TODO: Result Coercion
