@@ -21,18 +21,32 @@
     [(:key ast) v]))
 
 (defmethod exec :join [resolver ctx ast opts]
-  (println "join meta" (:meta ast))
-  (when-let [coll (lookup resolver ctx ast opts)]
-    [(:key ast)
-     (if (get-in ast [:meta :single])
-
-       (into {} (keep #(exec resolver coll % opts) (:children ast)))
-
+  (if (get-in ast [:meta :single])
+    (when-let [single (lookup resolver ctx ast opts)]
+      (when (sequential? single)
+        (throw
+         (ex-info
+          "Resolver returned a sequential when EQL AST marked as ^:single"
+          {:single single
+           :ctx ctx
+           :ast ast})))
+      [(:key ast)
+       ;; This destroys order. Consider using an ordered map
+       ;; (e.g. org.flatland/ordered "1.5.2")
+       (into {} (keep #(exec resolver single % opts) (:children ast)))])
+    (when-let [coll (lookup resolver ctx ast opts)]
+      (when (not (sequential? coll))
+        (throw
+         (ex-info
+          "Resolver must return a sequential unless EQL AST marked as ^:single"
+          {:coll coll
+           :ctx ctx
+           :ast ast})))
+      [(:key ast)
        (for [i coll]
          ;; This destroys order. Consider using an ordered map
          ;; (e.g. org.flatland/ordered "1.5.2")
-         (into {}
-               (keep #(exec resolver i % opts) (:children ast)))))]))
+         (into {} (keep #(exec resolver i % opts) (:children ast))))])))
 
 ;; TODO: Field Ordering
 ;; TODO: Result Coercion

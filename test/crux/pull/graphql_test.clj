@@ -494,28 +494,37 @@
         [:kind
          :name
          {:ofType
+          ^:single
           [:kind :name
+           ^:single
            {:ofType
             [:kind
              :name
+             ^:single
              {:ofType
               [:kind
                :name
+               ^:single
                {:ofType
                 [:kind
                  :name
+                 ^:single
                  {:ofType
                   [:kind
                    :name
+                   ^:single
                    {:ofType
                     [:kind
                      :name
+                     ^:single
                      {:ofType
                       [:kind
                        :name
+                       ^:single
                        {:ofType
                         [:kind
                          :name
+                         ^:single
                          {:ofType
                           [:kind
                            :name]}]}]}]}]}]}]}]}]}]
@@ -523,27 +532,30 @@
         InputValue
         [:name
          :description
-         {:type TypeRef}
+         ^:single {:type TypeRef}
          :defaultValue]
 
         EnumValue
         [:name :description :isDeprecated :deprecationReason]
 
+        Field
+        [:name
+         :description
+         {:args InputValue}
+         ^:single {:type TypeRef}
+         :isDeprecated
+         :deprecationReason]
+
         Type
         [:kind
          :name
          :description
-         {:fields
-          [:name
-           :description
-           {:args InputValue}
-           {:type TypeRef}
-           :isDeprecated
-           :deprecationReason]}
+         {:fields Field}
          {:interfaces TypeRef}
          {:possibleTypes TypeRef}
          {:enumValues EnumValue}
          {:inputFields InputValue}
+         ^:single
          {:ofType TypeRef}]
 
         Directive
@@ -600,24 +612,9 @@
         {})}))))
 
 
-(eql/query->ast
- '[:name [:description :name]])
-
-(eql-query
- (eql/query->ast
-  '[:name {:description {:text [:name]}}])
-
- ;; This is a GraphQL-aware resolver, which can infer implicit types and
- ;; respond to queries on them
- (reify exec/Resolver
-   (lookup [_ ctx ast opts]
-     (:type ast)
-     ))
- {})
-
 ;;(graphql-query-to-eql-ast introspection-query)
 ;; Target:
-{"data"
+#_{"data"
  {"__schema"
   {"queryType"
    {"name" "Root"}
