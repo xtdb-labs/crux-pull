@@ -487,6 +487,8 @@
                        {:kind "SCALAR"
                         :name "String"}}}})])
 
+        types (vec (eql-ast-node-to-graphql-types schema))
+
         ;; Add GraphQL intropsection
         TypeRef
         [:kind
@@ -558,9 +560,15 @@
             [(with-meta
                {:types Type}
                {:lookup (fn lookup-type [ctx ast] nil)})
-             {:queryType TypeRef}
-             {:mutationType TypeRef}
-             {:subscriptionType TypeRef}
+             (with-meta
+               {:queryType TypeRef}
+               {:singular true})
+             (with-meta
+               {:mutationType TypeRef}
+               {:singular true})
+             (with-meta
+               {:subscriptionType TypeRef}
+               {:singular true})
              {:directives Directive}]})))]
 
     #_(vec (eql-ast-node-to-graphql-types schema))
@@ -587,7 +595,7 @@
               [{:queryType {:name "Root"}
                 :mutationType nil
                 :subscriptionType nil
-                :types (vec (eql-ast-node-to-graphql-types schema))}]
+                :types types}]
 
               ;; Default resolution if no look on schema is as follows:
               (case (:type ast)
@@ -597,9 +605,25 @@
                 ))))
         {})}))))
 
+
+(eql/query->ast
+ '[:name [:description :name]])
+
+(eql-query
+ (eql/query->ast
+  '[:name {:description {:text [:name]}}])
+
+ ;; This is a GraphQL-aware resolver, which can infer implicit types and
+ ;; respond to queries on them
+ (reify exec/Resolver
+   (lookup [_ ctx ast opts]
+     (:type ast)
+     ))
+ {})
+
 ;;(graphql-query-to-eql-ast introspection-query)
 ;; Target:
-#_{"data"
+{"data"
  {"__schema"
   {"queryType"
    {"name" "Root"}

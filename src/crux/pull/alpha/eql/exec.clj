@@ -21,13 +21,18 @@
     [(:key ast) v]))
 
 (defmethod exec :join [resolver ctx ast opts]
+  (println "join meta" (:meta ast))
   (when-let [coll (lookup resolver ctx ast opts)]
     [(:key ast)
-     (for [i coll]
-       ;; This destroys order. Consider using an ordered map
-       ;; (e.g. org.flatland/ordered "1.5.2")
-       (into {}
-             (keep #(exec resolver i % opts) (:children ast))))]))
+     (if (get-in ast [:meta :singular])
+
+       (into {} (keep #(exec resolver coll % opts) (:children ast)))
+
+       (for [i coll]
+         ;; This destroys order. Consider using an ordered map
+         ;; (e.g. org.flatland/ordered "1.5.2")
+         (into {}
+               (keep #(exec resolver i % opts) (:children ast)))))]))
 
 ;; TODO: Field Ordering
 ;; TODO: Result Coercion
