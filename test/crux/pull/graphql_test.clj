@@ -488,10 +488,23 @@
                         :name "String"}}}})])
 
         ;; Add GraphQL intropsection
-        typeref [:kind
+        TypeRef
+        [:kind
+         :name
+         {:ofType
+          [:kind :name
+           {:ofType
+            [:kind
+             :name
+             {:ofType
+              [:kind
+               :name
+               {:ofType
+                [:kind
                  :name
                  {:ofType
-                  [:kind :name
+                  [:kind
+                   :name
                    {:ofType
                     [:kind
                      :name
@@ -503,19 +516,37 @@
                          :name
                          {:ofType
                           [:kind
-                           :name
-                           {:ofType
-                            [:kind
-                             :name
-                             {:ofType
-                              [:kind
-                               :name
-                               {:ofType
-                                [:kind
-                                 :name
-                                 {:ofType
-                                  [:kind
-                                   :name]}]}]}]}]}]}]}]}]}]
+                           :name]}]}]}]}]}]}]}]}]}]
+
+        InputValue
+        [:name
+         :description
+         {:type TypeRef}
+         :defaultValue]
+
+        EnumValue
+        [:name :description :isDeprecated :deprecationReason]
+
+        Type
+        [:kind
+         :name
+         :description
+         {:fields
+          [:name
+           :description
+           {:args InputValue}
+           {:type TypeRef}
+           :isDeprecated
+           :deprecationReason]}
+         {:interfaces TypeRef}
+         {:possibleTypes TypeRef}
+         {:enumValues EnumValue}
+         {:inputFields InputValue}
+         {:ofType TypeRef}]
+
+        Directive
+        [:name :description :locations {:args InputValue}]
+
         schema
         (->
          schema
@@ -525,66 +556,47 @@
           (eql/expr->ast
            {:__schema
             [(with-meta
-               {:types
-                [:kind
-                 :name
-                 :description
-                 {:fields
-                  [:name
-                   :description
-                   {:args [:name
-                           :description
-                           {:type typeref}
-                           :defaultValue]}
-                   {:type typeref}
-                   :isDeprecated
-                   :deprecationReason]}
-                 {:interfaces typeref}
-                 {:possibleTypes typeref}
-                 {:enumValues [:name :description :isDeprecated :deprecationReason]}
-                 {:inputFields [:name :description {:type typeref} :defaultValue]}
-                 {:ofType typeref}
-                 ]}
+               {:types Type}
                {:lookup (fn lookup-type [ctx ast] nil)})
-             {:queryType typeref}
-             {:mutationType typeref}
-             {:subscriptionType typeref}
-             {:directives [:name :description :locations {:args [:name :description {:type typeref} :defaultValue]}]}]}))
+             {:queryType TypeRef}
+             {:mutationType TypeRef}
+             {:subscriptionType TypeRef}
+             {:directives Directive}]}))
          )]
 
     #_(vec (eql-ast-node-to-graphql-types schema))
     #_(graphql-query-to-eql-ast introspection-query)
 
     #_(prepare-query
-     (graphql-query-to-eql-ast
-      introspection-query)
-     schema)
+       (graphql-query-to-eql-ast
+        introspection-query)
+       schema)
 
     (json/read-value
-       (json/write-value-as-string
-        {:data
-         (eql-query
-          (prepare-query
-           (graphql-query-to-eql-ast introspection-query)
-           schema)
+     (json/write-value-as-string
+      {:data
+       (eql-query
+        (prepare-query
+         (graphql-query-to-eql-ast introspection-query)
+         schema)
 
-          ;; This is a GraphQL-aware resolver, which can infer implicit types and
-          ;; respond to queries on them
-          (reify exec/Resolver
-            (lookup [_ ctx ast opts]
-              (if (= (:key ast) :__schema)
-                [{:queryType {:name "Root"}
-                  :mutationType nil
-                  :subscriptionType nil
-                  :types (vec (eql-ast-node-to-graphql-types schema))}]
+        ;; This is a GraphQL-aware resolver, which can infer implicit types and
+        ;; respond to queries on them
+        (reify exec/Resolver
+          (lookup [_ ctx ast opts]
+            (if (= (:key ast) :__schema)
+              [{:queryType {:name "Root"}
+                :mutationType nil
+                :subscriptionType nil
+                :types (vec (eql-ast-node-to-graphql-types schema))}]
 
-                ;; Default resolution if no look on schema is as follows:
-                (case (:type ast)
-                  :join
-                  (get ctx (:key ast))
-                  :prop (get ctx (:key ast))
-                  ))))
-          {})}))))
+              ;; Default resolution if no look on schema is as follows:
+              (case (:type ast)
+                :join
+                (get ctx (:key ast))
+                :prop (get ctx (:key ast))
+                ))))
+        {})}))))
 
 ;;(graphql-query-to-eql-ast introspection-query)
 ;; Target:
