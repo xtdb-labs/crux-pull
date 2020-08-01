@@ -24,7 +24,7 @@
   (println "join meta" (:meta ast))
   (when-let [coll (lookup resolver ctx ast opts)]
     [(:key ast)
-     (if (get-in ast [:meta :singular])
+     (if (get-in ast [:meta :single])
 
        (into {} (keep #(exec resolver coll % opts) (:children ast)))
 

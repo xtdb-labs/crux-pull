@@ -560,15 +560,9 @@
             [(with-meta
                {:types Type}
                {:lookup (fn lookup-type [ctx ast] nil)})
-             (with-meta
-               {:queryType TypeRef}
-               {:singular true})
-             (with-meta
-               {:mutationType TypeRef}
-               {:singular true})
-             (with-meta
-               {:subscriptionType TypeRef}
-               {:singular true})
+             ^:single {:queryType TypeRef}
+             ^:single {:mutationType TypeRef}
+             ^:single {:subscriptionType TypeRef}
              {:directives Directive}]})))]
 
     #_(vec (eql-ast-node-to-graphql-types schema))
