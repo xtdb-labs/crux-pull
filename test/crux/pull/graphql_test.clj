@@ -561,8 +561,7 @@
              {:queryType TypeRef}
              {:mutationType TypeRef}
              {:subscriptionType TypeRef}
-             {:directives Directive}]}))
-         )]
+             {:directives Directive}]})))]
 
     #_(vec (eql-ast-node-to-graphql-types schema))
     #_(graphql-query-to-eql-ast introspection-query)
