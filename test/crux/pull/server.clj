@@ -15,19 +15,35 @@
    [clojure.java.io :as io]))
 
 (defmethod ig/init-key ::server [_ {:keys [crux] :as config}]
-  (let [schema
+  (let [results
+        [{:album/name "In Rainbows"
+          :album/artist "Radiohead"
+          :album/year 2007}
+         {:album/name "OK Computer"
+          :album/artist "Radiohead"
+          :album/year 1997}
+         {:album/name "Autobahn"
+          :album/artist "Kraftwerk"
+          :album/year 1974}]
+
+        schema
         (->
          (eql/query->ast
-          [(with-meta
-             {:favoriteAlbums
-              [(with-meta '(:album/name) {})
-               (with-meta '(:album/artist) {})
-               (with-meta '(:album/year) {})]}
-             {:params {:artist
-                       {:graphql/description "Filter albums that have an `album__artist` fields which matches this argument value, if given."
-                        :graphql/type
-                        {:kind "SCALAR"
-                         :name "String"}}}})])
+          [^{:lookup
+             (fn [_ ast]
+               (if-let [artist (get-in ast [:params "artist"])]
+                 (filter
+                  (fn [album] (= (:album/artist album) artist))
+                  results)
+                 results))}
+           {'(:favoriteAlbums
+              {:artist
+               {:graphql/description "Filter albums that have an `album__artist` fields which matches this argument value, if given."
+                :graphql/type
+                {:kind "SCALAR"
+                 :name "String"}}})
+            [:album/name :album/artist :album/year]}])
+
          graphql-introspection/add-introspection)
 
         types (eql-ast-node-to-graphql-types schema)]
@@ -57,18 +73,25 @@
 
                      ;; Only works for schema queries
                      (reify exec/Resolver
-                       (lookup [_ ctx ast opts]
-                         (if (= (:key ast) :__schema)
-                           {:queryType {:name "Root"}
-                            :mutationType nil
-                            :subscriptionType nil
-                            :types types}
 
-                           (case (:type ast)
-                             :join
-                             (get ctx (:key ast))
-                             :prop (get ctx (:key ast))
-                             ))))
+                       (lookup [_ ctx ast opts]
+                         (let [delegate (:lookup (:meta ast))]
+                           (cond
+                             (= (:key ast) :__schema)
+                             {:queryType {:name "Root"}
+                              :mutationType nil
+                              :subscriptionType nil
+                              :types types}
+
+                             delegate
+                             (delegate ctx ast)
+
+                             :else
+                             (case (:type ast)
+                               :join
+                               (get ctx (:key ast))
+                               :prop (get ctx (:key ast))
+                               )))))
 
                      #_(reify exec/Resolver
                          (lookup [_ ctx property opts]
