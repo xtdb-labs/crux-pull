@@ -1,6 +1,6 @@
 ;; Copyright © 2020, JUXT LTD.
 
-(ns crux.pull.graphql-introspection-schema
+(ns crux.pull.graphql-introspection
   (:require
    [edn-query-language.core :as eql]))
 

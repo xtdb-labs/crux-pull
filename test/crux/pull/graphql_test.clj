@@ -4,7 +4,7 @@
   (:require
    [juxt.reap.alpha.graphql :as reap-graphql]
    [juxt.reap.alpha.graphql.util :as reap-graphql-util]
-   [crux.pull.graphql-introspection-schema :as introspection]
+   [crux.pull.graphql-introspection :as introspection]
    [jsonista.core :as json]
    [juxt.reap.alpha.api :as reap]
    [crux.pull.alpha.eql.exec :as exec]
@@ -14,103 +14,6 @@
    [clojure.string :as str]
    [edn-query-language.core :as eql]
    ))
-
-;; GraphiQL introspection query on init
-(def introspection-query
-  "query IntrospectionQuery {
-      __schema {
-
-        queryType { name }
-        mutationType { name }
-        subscriptionType { name }
-        types {
-          ...FullType
-        }
-        directives {
-          name
-          description
-
-          locations
-          args {
-            ...InputValue
-          }
-        }
-      }
-    }
-
-    fragment FullType on __Type {
-      kind
-      name
-      description
-      fields(includeDeprecated: true) {
-        name
-        description
-        args {
-          ...InputValue
-        }
-        type {
-          ...TypeRef
-        }
-        isDeprecated
-        deprecationReason
-      }
-      inputFields {
-        ...InputValue
-      }
-      interfaces {
-        ...TypeRef
-      }
-      enumValues(includeDeprecated: true) {
-        name
-        description
-        isDeprecated
-        deprecationReason
-      }
-      possibleTypes {
-        ...TypeRef
-      }
-    }
-
-    fragment InputValue on __InputValue {
-      name
-      description
-      type { ...TypeRef }
-      defaultValue
-    }
-
-    fragment TypeRef on __Type {
-      kind
-      name
-      ofType {
-        kind
-        name
-        ofType {
-          kind
-          name
-          ofType {
-            kind
-            name
-            ofType {
-              kind
-              name
-              ofType {
-                kind
-                name
-                ofType {
-                  kind
-                  name
-                  ofType {
-                    kind
-                    name
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  ")
 
 (do
   ;; An idea for a directive
@@ -470,7 +373,102 @@
 
          {})))))
 
+  ;; GraphiQL introspection query on init
+  (def introspection-query
+    "query IntrospectionQuery {
+      __schema {
 
+        queryType { name }
+        mutationType { name }
+        subscriptionType { name }
+        types {
+          ...FullType
+        }
+        directives {
+          name
+          description
+
+          locations
+          args {
+            ...InputValue
+          }
+        }
+      }
+    }
+
+    fragment FullType on __Type {
+      kind
+      name
+      description
+      fields(includeDeprecated: true) {
+        name
+        description
+        args {
+          ...InputValue
+        }
+        type {
+          ...TypeRef
+        }
+        isDeprecated
+        deprecationReason
+      }
+      inputFields {
+        ...InputValue
+      }
+      interfaces {
+        ...TypeRef
+      }
+      enumValues(includeDeprecated: true) {
+        name
+        description
+        isDeprecated
+        deprecationReason
+      }
+      possibleTypes {
+        ...TypeRef
+      }
+    }
+
+    fragment InputValue on __InputValue {
+      name
+      description
+      type { ...TypeRef }
+      defaultValue
+    }
+
+    fragment TypeRef on __Type {
+      kind
+      name
+      ofType {
+        kind
+        name
+        ofType {
+          kind
+          name
+          ofType {
+            kind
+            name
+            ofType {
+              kind
+              name
+              ofType {
+                kind
+                name
+                ofType {
+                  kind
+                  name
+                  ofType {
+                    kind
+                    name
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ")
 
   (deftest introspection-query-test
     (is
@@ -479,7 +477,8 @@
        {"__schema"
         {"queryType" {"name" "Root"},
          "types"
-         [{"name" "Root",
+         [{"interfaces" [],
+           "name" "Root",
            "kind" "OBJECT",
            "fields"
            [{"args"
@@ -489,7 +488,8 @@
                "Filter albums that have an `album__artist` fields which matches this argument value, if given."}],
              "name" "favoriteAlbums",
              "type" {"name" "favoriteAlbums", "kind" "OBJECT"}}]}
-          {"name" "favoriteAlbums",
+          {"interfaces" [],
+           "name" "favoriteAlbums",
            "kind" "OBJECT",
            "fields"
            [{"args" [],
@@ -502,8 +502,6 @@
              "name" "album__year",
              "type" {"name" "String", "kind" "SCALAR"}}]}
           {"name" "String", "kind" "SCALAR"}]}}}
-
-
       (let [schema
             (eql/query->ast
              [(with-meta
@@ -517,7 +515,7 @@
                            {:kind "SCALAR"
                             :name "String"}}}})])
 
-            types (vec (eql-ast-node-to-graphql-types schema))
+            types (eql-ast-node-to-graphql-types schema)
 
             ;; Add in EQL schema to support GraphQL introspection
             schema (introspection/add-introspection schema)]
@@ -540,7 +538,8 @@
                    :subscriptionType nil
                    :types types}
 
-                  ;; Default resolution if no look on schema is as follows:
+                  ;; Default resolution if no lookup schema in schema is as
+                  ;; follows:
                   (case (:type ast)
                     :join
                     (get ctx (:key ast))
@@ -548,4 +547,5 @@
                     ))))
             {})}))))))
 
-  (assert (successful? (run-tests))))
+  (assert (successful? (run-tests)))
+  )

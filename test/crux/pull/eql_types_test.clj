@@ -99,56 +99,78 @@
           (conj [:description description])
 
           (#{"OBJECT" "INTERFACE"} kind)
-          (conj [:fields (mapv eql-ast-node-to-graphql-field (:children node))]))))
+          (conj [:fields (mapv eql-ast-node-to-graphql-field (:children node))])
+
+          (#{"OBJECT"} kind)
+          ;; TODO
+          (conj [:interfaces []])
+
+          (#{"INTERFACE" "UNION"} kind)
+          ;; TODO
+          (conj [:possibleTypes []])
+
+          (#{"ENUM"} kind)
+          ;; TODO
+          (conj [:enumValues []])
+
+          (#{"INPUT_OBJECT"} kind)
+          ;; TODO
+          (conj [:inputFields []])
+
+          (#{"NON_NULL" "LIST"} kind)
+          ;; TODO
+          (conj [:ofType {}])
+
+          )))
 
   (defn eql-ast-node-to-graphql-types [node]
-    (distinct
-     (case (:type node)
-       :root
-       (concat
+    (vec
+     (distinct
+      (case (:type node)
+        :root
+        (concat
+         [(eql-ast-node-to-graphql-type node)]
+         (mapcat eql-ast-node-to-graphql-types (:children node)))
+        :prop
         [(eql-ast-node-to-graphql-type node)]
-        (mapcat eql-ast-node-to-graphql-types (:children node)))
-       :prop
-       [(eql-ast-node-to-graphql-type node)]
-       :join
-       (concat
-        [(eql-ast-node-to-graphql-type node)]
-        (mapcat eql-ast-node-to-graphql-types (:children node)))
-       (throw
-        (ex-info
-         "Cannot extract GraphQL type, EQL type not matched"
-         {:type (:type node)})))))
+        :join
+        (concat
+         [(eql-ast-node-to-graphql-type node)]
+         (mapcat eql-ast-node-to-graphql-types (:children node)))
+        (throw
+         (ex-info
+          "Cannot extract GraphQL type, EQL type not matched"
+          {:type (:type node)}))))))
 
   (deftest eql-ast-node-to-graphql-types-test
     (testing "Root"
-      (let [types (vec
-                   (eql-ast-node-to-graphql-types
-                    (eql/query->ast [])))]
+      (let [types (eql-ast-node-to-graphql-types
+                   (eql/query->ast []))]
         (is (= 1 (count types)))
         (is (= {:kind "OBJECT"
                 :name "Root"
-                :fields []}
+                :fields []
+                :interfaces []}
                (first types))))
 
       (testing "setting the Root object type's description"
-        (let [types (vec
-                     (eql-ast-node-to-graphql-types
-                      (eql/query->ast
-                       (with-meta
-                         []
-                         {:graphql/type {:description "This is the root"}}))))]
+        (let [types (eql-ast-node-to-graphql-types
+                     (eql/query->ast
+                      (with-meta
+                        []
+                        {:graphql/type {:description "This is the root"}})))]
           (is (= 1 (count types)))
           (is (= {:kind "OBJECT"
                   :name "Root"
+                  :description "This is the root"
                   :fields []
-                  :description "This is the root"}
+                  :interfaces []}
                  (first types))))))
 
     (testing "Properties"
-      (let [types (vec
-                   (eql-ast-node-to-graphql-types
-                    (eql/query->ast
-                     [:album/name :album/year])))]
+      (let [types (eql-ast-node-to-graphql-types
+                   (eql/query->ast
+                    [:album/name :album/year]))]
         (is (=
              (+ 1 ;; root
                 1 ;; scalar string
@@ -162,37 +184,34 @@
 
       (testing "override the GraphQL field's name with metadata"
         (let [types
-              (vec
-               (eql-ast-node-to-graphql-types
-                (eql/query->ast
-                 [:album/name
-                  (with-meta
-                    '(:album/year)
-                    {:graphql/field {:name "released"}})])))]
+              (eql-ast-node-to-graphql-types
+               (eql/query->ast
+                [:album/name
+                 (with-meta
+                   '(:album/year)
+                   {:graphql/field {:name "released"}})]))]
 
           (is (= "released" (get-in types [0 :fields 1 :name])))))
 
       (testing "provide the GraphQL field's description with metadata"
-        (let [types (vec
-                     (eql-ast-node-to-graphql-types
-                      (eql/query->ast
-                       [:album/name
-                        (with-meta
-                          '(:album/year)
-                          {:graphql/field
-                           {:name "released"
-                            :description "The year the album was released"}})])))]
+        (let [types (eql-ast-node-to-graphql-types
+                     (eql/query->ast
+                      [:album/name
+                       (with-meta
+                         '(:album/year)
+                         {:graphql/field
+                          {:name "released"
+                           :description "The year the album was released"}})]))]
 
           (is (= "The year the album was released"
                  (get-in types [0 :fields 1 :description]) )))))
 
     (testing "Joins"
       (let [types
-            (vec
-             (eql-ast-node-to-graphql-types
-              (eql/query->ast
-               [{:favorite-albums
-                 [:album/name :album/year]}])))]
+            (eql-ast-node-to-graphql-types
+             (eql/query->ast
+              [{:favorite-albums
+                [:album/name :album/year]}]))]
 
         ;; Expecting a root OBJECT type, one for favorite-albums, and the SCALAR String
         (is
@@ -225,22 +244,9 @@
                                      {:kind "SCALAR"
                                       :name "String"}}}})])
                types
-               (vec
-                (eql-ast-node-to-graphql-types
-                 schema
-                 ))]
+               (eql-ast-node-to-graphql-types schema)]
 
            types)
          [0 :fields 0 :args 0])))))
 
-  (assert (successful? (run-tests)))
-
-  [(eql/query->ast [{:favorite-albums
-                     [:album/name :album/year]}])
-   :=>
-   (eql-ast-node-to-graphql-types
-    (eql/query->ast
-     (with-meta
-       [{:favorite-albums
-         [:album/name :album/year]}]
-       {:graphql/type {:description "The root object"}})))])
+  (assert (successful? (run-tests))))
