@@ -4,6 +4,7 @@
   (:require
    [juxt.reap.alpha.graphql :as reap-graphql]
    [juxt.reap.alpha.graphql.util :as reap-graphql-util]
+   [crux.pull.graphql-introspection-schema :as introspection]
    [jsonista.core :as json]
    [juxt.reap.alpha.api :as reap]
    [crux.pull.alpha.eql.exec :as exec]
@@ -471,177 +472,80 @@
 
 
 
-  (assert (successful? (run-tests)))
-
-  ;; Let's try to query for the __schema
-  (let [schema
-        (eql/query->ast
-         [(with-meta
-            {:favoriteAlbums
-             [(with-meta '(:album/name) {})
-              (with-meta '(:album/artist) {})
-              (with-meta '(:album/year) {})]}
-            {:params {:artist
-                      {:graphql/description "Filter albums that have an `album__artist` fields which matches this argument value, if given."
-                       :graphql/type
-                       {:kind "SCALAR"
-                        :name "String"}}}})])
-
-        types (vec (eql-ast-node-to-graphql-types schema))
-
-        ;; Add GraphQL intropsection
-        TypeRef
-        [:kind
-         :name
-         {:ofType
-          ^:single
-          [:kind :name
-           ^:single
-           {:ofType
-            [:kind
-             :name
-             ^:single
-             {:ofType
-              [:kind
-               :name
-               ^:single
-               {:ofType
-                [:kind
-                 :name
-                 ^:single
-                 {:ofType
-                  [:kind
-                   :name
-                   ^:single
-                   {:ofType
-                    [:kind
-                     :name
-                     ^:single
-                     {:ofType
-                      [:kind
-                       :name
-                       ^:single
-                       {:ofType
-                        [:kind
-                         :name
-                         ^:single
-                         {:ofType
-                          [:kind
-                           :name]}]}]}]}]}]}]}]}]}]
-
-        InputValue
-        [:name
-         :description
-         ^:single {:type TypeRef}
-         :defaultValue]
-
-        EnumValue
-        [:name :description :isDeprecated :deprecationReason]
-
-        Field
-        [:name
-         :description
-         {:args InputValue}
-         ^:single {:type TypeRef}
-         :isDeprecated
-         :deprecationReason]
-
-        Type
-        [:kind
-         :name
-         :description
-         {:fields Field}
-         {:interfaces TypeRef}
-         {:possibleTypes TypeRef}
-         {:enumValues EnumValue}
-         {:inputFields InputValue}
-         ^:single
-         {:ofType TypeRef}]
-
-        Directive
-        [:name :description :locations {:args InputValue}]
-
-        schema
-        (->
-         schema
-         (update
-          :children
-          conj
-          (eql/expr->ast
-           {:__schema
-            [(with-meta
-               {:types Type}
-               {:lookup (fn lookup-type [ctx ast] nil)})
-             ^:single {:queryType TypeRef}
-             ^:single {:mutationType TypeRef}
-             ^:single {:subscriptionType TypeRef}
-             {:directives Directive}]})))]
-
-    #_(vec (eql-ast-node-to-graphql-types schema))
-    #_(graphql-query-to-eql-ast introspection-query)
-
-    #_(prepare-query
-       (graphql-query-to-eql-ast
-        introspection-query)
-       schema)
-
-    (json/read-value
-     (json/write-value-as-string
-      {:data
-       (eql-query
-        (prepare-query
-         (graphql-query-to-eql-ast introspection-query)
-         schema)
-
-        ;; This is a GraphQL-aware resolver, which can infer implicit types and
-        ;; respond to queries on them
-        (reify exec/Resolver
-          (lookup [_ ctx ast opts]
-            (if (= (:key ast) :__schema)
-              [{:queryType {:name "Root"}
-                :mutationType nil
-                :subscriptionType nil
-                :types types}]
-
-              ;; Default resolution if no look on schema is as follows:
-              (case (:type ast)
-                :join
-                (get ctx (:key ast))
-                :prop (get ctx (:key ast))
-                ))))
-        {})}))))
+  (deftest introspection-query-test
+    (is
+     (=
+      {"data"
+       {"__schema"
+        {"queryType" {"name" "Root"},
+         "types"
+         [{"name" "Root",
+           "kind" "OBJECT",
+           "fields"
+           [{"args"
+             [{"name" "artist",
+               "type" {"name" "String", "kind" "SCALAR"},
+               "description"
+               "Filter albums that have an `album__artist` fields which matches this argument value, if given."}],
+             "name" "favoriteAlbums",
+             "type" {"name" "favoriteAlbums", "kind" "OBJECT"}}]}
+          {"name" "favoriteAlbums",
+           "kind" "OBJECT",
+           "fields"
+           [{"args" [],
+             "name" "album__name",
+             "type" {"name" "String", "kind" "SCALAR"}}
+            {"args" [],
+             "name" "album__artist",
+             "type" {"name" "String", "kind" "SCALAR"}}
+            {"args" [],
+             "name" "album__year",
+             "type" {"name" "String", "kind" "SCALAR"}}]}
+          {"name" "String", "kind" "SCALAR"}]}}}
 
 
-;;(graphql-query-to-eql-ast introspection-query)
-;; Target:
-#_{"data"
- {"__schema"
-  {"queryType"
-   {"name" "Root"}
-   "types"
-   [{"kind" "OBJECT" "name" "Root"}
-    {"kind" "OBJECT"
-     "name" "favouriteAlbums"
-     "args" [{"name" "artist"
-              "type" {"kind" "SCALAR" "name" "String"}}]
-     "type" {"kind" "LIST"
-             "name" nil
-             "ofType"
-             {"kind" "OBJECT"
-              "name" "Album"
-              "ofType" nil}}}
-    {"kind" "OBJECT"
-     "name" "Album"
-     "fields"
-     [{"name" "album__name"
-       "type"
-       {"kind" "SCALAR"
-        "name" "String"}}
-      {"name" "album__artist"
-       "type"
-       {"kind" "SCALAR"
-        "name" "String"}}
-      {"name" "album__year"
-       "type"
-       {"kind" "SCALAR"
-        "name" "Int"}}]}]}}}
+      (let [schema
+            (eql/query->ast
+             [(with-meta
+                {:favoriteAlbums
+                 [(with-meta '(:album/name) {})
+                  (with-meta '(:album/artist) {})
+                  (with-meta '(:album/year) {})]}
+                {:params {:artist
+                          {:graphql/description "Filter albums that have an `album__artist` fields which matches this argument value, if given."
+                           :graphql/type
+                           {:kind "SCALAR"
+                            :name "String"}}}})])
+
+            types (vec (eql-ast-node-to-graphql-types schema))
+
+            ;; Add in EQL schema to support GraphQL introspection
+            schema (introspection/add-introspection schema)]
+
+        (json/read-value
+         (json/write-value-as-string
+          {:data
+           (eql-query
+            (prepare-query
+             (graphql-query-to-eql-ast introspection-query)
+             schema)
+
+            ;; This is a GraphQL-aware resolver, which can infer implicit types and
+            ;; respond to queries on them
+            (reify exec/Resolver
+              (lookup [_ ctx ast opts]
+                (if (= (:key ast) :__schema)
+                  {:queryType {:name "Root"}
+                   :mutationType nil
+                   :subscriptionType nil
+                   :types types}
+
+                  ;; Default resolution if no look on schema is as follows:
+                  (case (:type ast)
+                    :join
+                    (get ctx (:key ast))
+                    :prop (get ctx (:key ast))
+                    ))))
+            {})}))))))
+
+  (assert (successful? (run-tests))))
