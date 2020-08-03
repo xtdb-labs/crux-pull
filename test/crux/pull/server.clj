@@ -4,53 +4,64 @@
   (:require
    [integrant.core :as ig]
    [ring.adapter.jetty :as jetty]
-   [crux.pull.alpha.eql.exec :as exec]
-   [crux.pull.graphql-test :as graphql]
-   [crux.pull.graphql-introspection :as graphql-introspection]
+   [crux.pull.alpha.eql :refer [prepare-query eql-query]]
+   [crux.pull.alpha.graphql :as graphql]
    [jsonista.core :as json]
    [edn-query-language.core :as eql]
    [crux.api :as crux]
-   [crux.pull.graphql-test :refer [prepare-query]]
-   [crux.pull.eql-types-test :refer [eql-ast-node-to-graphql-types]]
-   [clojure.java.io :as io]))
+   [clojure.java.io :as io]
+   [clojure.edn :as edn]))
 
 (defmethod ig/init-key ::server [_ {:keys [crux] :as config}]
-  (let [results
-        [{:album/name "In Rainbows"
-          :album/artist "Radiohead"
-          :album/year 2007}
-         {:album/name "OK Computer"
-          :album/artist "Radiohead"
-          :album/year 1997}
-         {:album/name "Autobahn"
-          :album/artist "Kraftwerk"
-          :album/year 1974}]
+  (crux/submit-tx
+   crux
+   (for [record (edn/read-string (slurp (io/resource "james-bond.edn")))]
+     [:crux.tx/put record]))
+
+  (let [db (crux/db crux)
 
         schema
-        (->
-         (eql/query->ast
-          [^{:lookup
-             (fn [_ ast]
-               (if-let [artist (get-in ast [:params "artist"])]
-                 (filter
-                  (fn [album] (= (:album/artist album) artist))
-                  results)
-                 results))}
-           {'(:favoriteAlbums
-              {:artist
-               {:graphql/description "Filter albums that have an `album__artist` fields which matches this argument value, if given."
-                :graphql/type
-                {:kind "SCALAR"
-                 :name "String"}}})
-            [:album/name :album/artist :album/year]}])
+        (eql/query->ast
+         [^{:lookup (fn [ctx ast]
+                      (map #(zipmap [:name :director] %)
+                           (crux/q db '{:find [?name ?director]
+                                        :where [[?f :type :film]
+                                                [?f :film/director ?director]
+                                                [?f :film/name ?name]]})))
+            :graphql/type {:description "These are the 007 films"}}
+          {:films
+           [:name
+            ^{:lookup
+              (fn [ctx ast]
+                (map #(zipmap [:name] %)
+                     (crux/q db {:find '[?name]
+                                 :where [['?director :crux.db/id (:director ctx)] ['?director :person/name '?name]]})))}
+            {:director [:name]}]}]
+         #_[^{:graphql/type
+              {:description "Get all Bond films"}
+              :lookup
+              (fn [ctx ast]
+                (if-let [artist (get-in ast [:params "artist"])]
+                  (filter
+                   (fn [album] (= (:album/artist album) artist))
+                   results)
+                  results))
+              #_:params
+              #_{:artist
+                 {:graphql/description "Filter albums that have an `album__artist` fields which matches this argument value, if given."
+                  :graphql/type
+                  {:kind "SCALAR"
+                   :name "String"}}}}
+            {:films
+             [:name :director]}])
 
-         graphql-introspection/add-introspection)
-
-        types (eql-ast-node-to-graphql-types schema)]
+        types (graphql/eql-ast-node-to-graphql-types schema)
+        schema (graphql/add-introspection schema)]
 
     (jetty/run-jetty
      (fn [req]
-       (case [(:request-method req) (:uri req)]
+
+       (case ((juxt :request-method :uri) req)
          [:get "/"]
          {:status 200
           :headers {"content-type" "text/html;charset=utf-8"}
@@ -65,40 +76,13 @@
             :headers {"content-type" "application/json"}
             :body (json/write-value-as-string
                    {:data
-                    (graphql/eql-query
-
-                     (prepare-query
-                      (graphql/graphql-query-to-eql-ast query)
-                      schema)
-
-                     ;; Only works for schema queries
-                     (reify exec/Resolver
-
-                       (lookup [_ ctx ast opts]
-                         (let [delegate (:lookup (:meta ast))]
-                           (cond
-                             (= (:key ast) :__schema)
-                             {:queryType {:name "Root"}
-                              :mutationType nil
-                              :subscriptionType nil
-                              :types types}
-
-                             delegate
-                             (delegate ctx ast)
-
-                             :else
-                             (case (:type ast)
-                               :join
-                               (get ctx (:key ast))
-                               :prop (get ctx (:key ast))
-                               )))))
-
-                     #_(reify exec/Resolver
-                         (lookup [_ ctx property opts]
-                           (get {:greeting "Hello"
-                                 :audience "World"} property)))
-                     {})})})
-
+                    (-> query
+                        (graphql/graphql-query-to-eql operation)
+                        eql/query->ast
+                        (prepare-query schema)
+                        (eql-query
+                         (graphql/graphql-resolver types)
+                         {}))})})
          {:status 404
           :body "Not Found"}))
      (conj config [:join? false]))))
