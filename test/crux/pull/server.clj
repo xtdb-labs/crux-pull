@@ -18,24 +18,26 @@
    (for [record (edn/read-string (slurp (io/resource "james-bond.edn")))]
      [:crux.tx/put record]))
 
-  (let [db (crux/db crux)
-
-        schema
+  (let [schema
         (eql/query->ast
-         [^{:lookup (fn [ctx ast]
+         [^{:lookup (fn [ctx ast opts]
                       (map #(zipmap [:name :director] %)
-                           (crux/q db '{:find [?name ?director]
-                                        :where [[?f :type :film]
-                                                [?f :film/director ?director]
-                                                [?f :film/name ?name]]})))
+                           (crux/q
+                            (:crux/db opts)
+                            '{:find [?name ?director]
+                              :where [[?f :type :film]
+                                      [?f :film/director ?director]
+                                      [?f :film/name ?name]]})))
             :graphql/type {:description "These are the 007 films"}}
           {:films
            [:name
             ^{:lookup
-              (fn [ctx ast]
+              (fn [ctx ast opts]
                 (map #(zipmap [:name] %)
-                     (crux/q db {:find '[?name]
-                                 :where [['?director :crux.db/id (:director ctx)] ['?director :person/name '?name]]})))}
+                     (crux/q
+                      (:crux/db opts)
+                      {:find '[?name]
+                       :where [['?director :crux.db/id (:director ctx)] ['?director :person/name '?name]]})))}
             {:director [:name]}]}]
          #_[^{:graphql/type
               {:description "Get all Bond films"}
@@ -55,7 +57,7 @@
             {:films
              [:name :director]}])
 
-        types (graphql/eql-ast-node-to-graphql-types schema)
+
         schema (graphql/add-introspection schema)]
 
     (jetty/run-jetty
@@ -68,7 +70,8 @@
           :body (slurp (io/resource "index.html"))}
 
          [:post "/graphql"]
-         (let [{operation "operationName"
+         (let [db (crux/db crux)
+               {operation "operationName"
                 query "query"}
                (json/read-value (slurp (:body req)))]
 
@@ -81,8 +84,12 @@
                         eql/query->ast
                         (prepare-query schema)
                         (eql-query
-                         (graphql/graphql-resolver types)
-                         {}))})})
+                         ;; Build a resolver
+                         (-> schema
+                             graphql/eql-ast-node-to-graphql-types
+                             graphql/graphql-resolver)
+                         ;; Pass options
+                         {:crux/db db}))})})
          {:status 404
           :body "Not Found"}))
      (conj config [:join? false]))))

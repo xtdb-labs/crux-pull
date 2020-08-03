@@ -24,7 +24,7 @@
 
           ;; If delegate, call it!
           delegate
-          (delegate ctx ast)
+          (delegate ctx ast opts)
 
           :else
           (case (:type ast)
