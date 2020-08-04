@@ -57,6 +57,7 @@
             {:films
              [:name :director]}])
 
+        types (graphql/eql-ast-node-to-graphql-types schema)
 
         schema (graphql/add-introspection schema)]
 
@@ -85,9 +86,7 @@
                         (prepare-query schema)
                         (eql-query
                          ;; Build a resolver
-                         (-> schema
-                             graphql/eql-ast-node-to-graphql-types
-                             graphql/graphql-resolver)
+                         (graphql/graphql-resolver types)
                          ;; Pass options
                          {:crux/db db}))})})
          {:status 404
