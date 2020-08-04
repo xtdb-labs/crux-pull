@@ -20,14 +20,17 @@
 
   (let [schema
         (eql/query->ast
-         [^{:lookup (fn [ctx ast opts]
-                      (map #(zipmap [:name :director] %)
-                           (crux/q
-                            (:crux/db opts)
-                            '{:find [?name ?director]
-                              :where [[?f :type :film]
-                                      [?f :film/director ?director]
-                                      [?f :film/name ?name]]})))
+         ^{:crux.graphql/description
+           "This Crux GraphQL demo uses the James Bond films dataset used by the Crux Console."}
+         [^{:lookup
+            (fn [ctx ast opts]
+              (map #(zipmap [:name :director] %)
+                   (crux/q
+                    (:crux/db opts)
+                    '{:find [?name ?director]
+                      :where [[?f :type :film]
+                              [?f :film/director ?director]
+                              [?f :film/name ?name]]})))
             :graphql/type {:description "These are the 007 films"}}
           {:films
            [:name

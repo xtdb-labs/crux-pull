@@ -429,8 +429,8 @@
                 (with-meta '(:album/artist) {})
                 (with-meta '(:album/year) {})]}
               {:params {:artist
-                        {:graphql/description "Filter albums that have an `album__artist` fields which matches this argument value, if given."
-                         :graphql/type
+                        {:crux.graphql/description "Filter albums that have an `album__artist` fields which matches this argument value, if given."
+                         :crux.graphql/type
                          {:kind "SCALAR"
                           :name "String"}}}})])
 

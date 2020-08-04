@@ -22,7 +22,7 @@
                    (eql/query->ast
                     (with-meta
                       []
-                      {:graphql/type {:description "This is the root"}})))]
+                      {:crux.graphql/description "This is the root"})))]
         (is (= 1 (count types)))
         (is (= {:kind "OBJECT"
                 :name "Root"
@@ -53,7 +53,7 @@
               [:album/name
                (with-meta
                  '(:album/year)
-                 {:graphql/field {:name "released"}})]))]
+                 {:crux.graphql/name "released"})]))]
 
         (is (= "released" (get-in types [0 :fields 1 :name])))))
 
@@ -63,9 +63,8 @@
                     [:album/name
                      (with-meta
                        '(:album/year)
-                       {:graphql/field
-                        {:name "released"
-                         :description "The year the album was released"}})]))]
+                       {:crux.graphql/name "released"
+                        :crux.graphql/description"The year the album was released"})]))]
 
         (is (= "The year the album was released"
                (get-in types [0 :fields 1 :description]) )))))
@@ -95,8 +94,8 @@
              (eql/query->ast
               [^{:lookup (fn [_ _])
                  :params {"artist"
-                          {:graphql/description "Filter albums that have an `album__artist` fields which matches this argument value, if given."
-                           :graphql/type
+                          {:crux.graphql/description "Filter albums that have an `album__artist` fields which matches this argument value, if given."
+                           :crux.graphql/type
                            {:kind "SCALAR"
                             :name "String"}}}}
                {:favoriteAlbums

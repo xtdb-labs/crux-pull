@@ -232,10 +232,10 @@
 (defn eql-ast-node-to-graphql-field
   "Each field has a kind, name, description"
   [node]
-  (let [description (get-in node [:meta :graphql/field :description])]
+  (let [description (get-in node [:meta :crux.graphql/description])]
     (cond-> {:name
              (or
-              (get-in node [:meta :graphql/field :name])
+              (get-in node [:meta :crux.graphql/name])
               (graphql-name (:dispatch-key node)))}
 
       description
@@ -247,9 +247,9 @@
       true (conj [:args
                   (mapv
                    (fn [[n m]]
-                     (let [desc (get m :graphql/description)
-                           type (get m :graphql/type)
-                           default-value (get m :graphql/default-value)]
+                     (let [desc (get m :crux.graphql/description)
+                           type (get m :crux.graphql/type)
+                           default-value (get m :crux.graphql/default-value)]
                        (cond-> {:name n}
                          desc (conj [:description desc])
                          type (conj [:type type])
@@ -291,7 +291,7 @@
                 (ex-info
                  "Cannot infer GraphQL type kind, EQL type not matched"
                  {:type (:type node)})))
-        description (get-in node [:meta :graphql/type :description])]
+        description (get-in node [:meta :crux.graphql/description])]
 
     (cond->
         {:kind kind}
@@ -303,7 +303,7 @@
                :prop "String"
                :join
                (or
-                (get-in node [:meta :graphql/type :name])
+                (get-in node [:meta :crux.graphql/name])
                 (graphql-name (:dispatch-key node))))])
 
       description
