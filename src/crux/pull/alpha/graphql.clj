@@ -88,11 +88,11 @@
           n
           (keyword
            (str/replace ns "_" ".")
-           (str/replace n "_" "."))
+           (str/replace n #"(?<=.)_" "."))
           ;; Input doesn't contain __, so convert to a non-namespaced keyword
           :else
           ;; TODO: Convert camel casing to kebab case
-          (keyword (str/replace ns "_" "."))))))
+          (keyword (str/replace ns #"(?<=.)_" "."))))))
 
 (defn selection-to-eql-term [[_ {:keys [name arguments directives selection-set]}]]
     (let [add-arguments (fn [x] (if (not-empty arguments) (list x arguments) x))]
@@ -227,6 +227,9 @@
        (str/replace (name k) "." "_"))
       (str/replace (name k) "." "_"))))
 
+;;(graphql-name :film/_vehicles)
+;;(name (eql-keyword "film___vehicles"))
+
 (declare eql-ast-node-to-graphql-type)
 
 (defn eql-ast-node-to-graphql-field
@@ -289,7 +292,7 @@
                :join "OBJECT"
                (throw
                 (ex-info
-                 "Cannot infer GraphQL type kind, EQL type not matched"
+                 (format "Cannot infer GraphQL type kind (%s), EQL type not matched" (:type node))
                  {:type (:type node)})))
         description (get-in node [:meta :crux.graphql/description])]
 
