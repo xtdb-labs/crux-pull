@@ -27,73 +27,75 @@
                          ]
                  })))
 
-{:crux.db/id :film/name
- :crux.relation/type :crux.relation/number}
 
-;; graphql types
-{:crux.db/id :film/vehicle
- :crux.relation/type :crux.relation/reference}
+(comment
+  {:crux.db/id :film/name
+   :crux.relation/type :crux.relation/number}
 
-{:crux.tx/put [:malcolm :foo/bar 123]}
+  ;; graphql types
+  {:crux.db/id :film/vehicle
+   :crux.relation/type :crux.relation/reference}
 
-;; rdf property, crux attribute
-{:crux.db/id :film/name
- :label "Name"
- :crux.relation/unique? true}
+  {:crux.tx/put [:malcolm :foo/bar 123]}
 
-(def my-relation
-  '{:crux.db/id :malcolms/films
+  ;; rdf property, crux attribute
+  {:crux.db/id :film/name
+   :label "Name"
+   :crux.relation/unique? true}
 
-    :crux.relation/attributes ;; graphql fields
-    {:film/name {:crux.graphql/name "filmName"
-                 :crux.relation/required? true
-                 :ui/label "Foo"
-                 :crux.relation/cardinality :one}
-     :film/vehicle {:crux.relation/required? true
-                    :crux.relation/cardinality :many
-                    ;; the values that attribute reference can be constrained
-                    ;; here, optionally. ;; this is 'typeref' in graphql
-                    :crux.relation/range :james-or-malcolms/vehicles}
-     :film/bond-girl {:crux.relation/cardinality :zero-or-more}}
+  (def my-relation
+    '{:crux.db/id :malcolms/films
 
-    :crux.relations/entities
-    ;; extensional
-    ;; #{}
-    ;; intensional
-    {:find [?e]
-     :args [?subject]
-     ;; Additional where clauses
-     :where [
-             [?e :james/type :film]
-             ;; implicitly, all the required? true of the above
-             ;; :crux.type/attributes will be added here
-             [?e :film/name]
-             [?e :film/vehicle]
-             ]
-     :rules []}})
+      :crux.relation/attributes ;; graphql fields
+      {:film/name {:crux.graphql/name "filmName"
+                   :crux.relation/required? true
+                   :ui/label "Foo"
+                   :crux.relation/cardinality :one}
+       :film/vehicle {:crux.relation/required? true
+                      :crux.relation/cardinality :many
+                      ;; the values that attribute reference can be constrained
+                      ;; here, optionally. ;; this is 'typeref' in graphql
+                      :crux.relation/range :james-or-malcolms/vehicles}
+       :film/bond-girl {:crux.relation/cardinality :zero-or-more}}
+
+      :crux.relations/entities
+      ;; extensional
+      ;; #{}
+      ;; intensional
+      {:find [?e]
+       :args [?subject]
+       ;; Additional where clauses
+       :where [
+               [?e :james/type :film]
+               ;; implicitly, all the required? true of the above
+               ;; :crux.type/attributes will be added here
+               [?e :film/name]
+               [?e :film/vehicle]
+               ]
+       :rules []}})
 
 
-;; Tentative : subclassing
-(def my-good-films
-  '{:crux.db/id :good-films
+  ;; Tentative : subclassing
+  (def my-good-films
+    '{:crux.db/id :good-films
 
-    :crux.type/subclass :james/films
+      :crux.type/subclass :james/films
 
-    :crux.type/attributes
-    {:film/name {:type String}
-     :film/vehicles {:type :vehicle}}
+      :crux.type/attributes
+      {:film/name {:type String}
+       :film/vehicles {:type :vehicle}}
 
-    :crux.type/entities
-    {:find [?e]
-     :args [?subject]
-     :where [
-             [?subject :likes ?e]
-             (or
-              [?e :malcolm/films]
-              [?e :james/films])
-             [(isa? :jamesbond/films ?e)]
-             ]
-     :rules []}})
+      :crux.type/entities
+      {:find [?e]
+       :args [?subject]
+       :where [
+               [?subject :likes ?e]
+               (or
+                [?e :malcolm/films]
+                [?e :james/films])
+               [(isa? :jamesbond/films ?e)]
+               ]
+       :rules []}}))
 
 
 (defmethod ig/init-key ::server [_ {:keys [crux] :as config}]
@@ -106,7 +108,7 @@
         (eql/query->ast
          ^{:crux.graphql/description
            "This Crux GraphQL demo uses the James Bond films dataset used by the Crux Console."}
-         [^{
+         [#_^{
             :lookup
             (fn [ctx ast opts]
               (let [[_ eql] (first (eql/ast->expr ast))]
@@ -125,13 +127,13 @@
 
                            ]}))))
             :crux.graphql/description "These are the 007 films"}
-          {:allFilms
+          #_{:allFilms
            ^{:type :film} [:film/name
                 :film/year
                 :film/box
                 {:film/vehicles
                  [:vehicle/brand :vehicle/model
-                  {:film/_vehicles (ref :film)}]
+                  {:film/_vehicles []}]
                  }]
            }
 

@@ -50,16 +50,17 @@
          (filter :operation-type)))
 
 (defn validate-graphql-document
-    "'If a Document contains only one operation, that operation may be unnamed or
+  "'If a Document contains only one operation, that operation may be unnamed or
   represented in the shorthand form, which omits both the query keyword and
   operation name. Otherwise, if a GraphQL Document contains multiple operations,
   each operation must be named.'"
-    [doc]
-    (when-not
-        (or
-         (= (count (filter #(= (:operation-type %) "query") (operations doc))) 1)
-         (every? :name (operations doc)))
-      (throw (ex-info "Invalid GraphQL document" {:doc doc}))))
+  [doc]
+  (when-not
+      (or
+       (= (count (filter #(= (:operation-type %) "query") (operations doc))) 1)
+       (every? :name (operations doc)))
+      (throw (ex-info "Invalid GraphQL document" {:doc doc})))
+  doc)
 
 (defn graphql-operation
     "Extract the GraphQL operation from the parsed document, dereferencing any
