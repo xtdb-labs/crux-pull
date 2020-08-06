@@ -1,6 +1,6 @@
 ;; Copyright © 2020, JUXT LTD.
 
-(ns crux.pull.graphql-test
+(ns crux.pull.eql-graphql-test
   (:require
    [jsonista.core :as json]
    [crux.pull.alpha.eql.graphql :as graphql]

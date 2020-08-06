@@ -3,9 +3,8 @@
 (ns crux.pull.schema-test
   (:require
    [crux.api :as crux]
-   ;;[jsonista.core :as json]
    [crux.pull.alpha.eql.graphql :as graphql]
-   [crux.pull.graphql-test :refer [introspection-query]]
+   [crux.pull.eql-graphql-test :refer [introspection-query]]
    [cheshire.core :as json]
    [clojure.test :refer [deftest is are testing]]))
 

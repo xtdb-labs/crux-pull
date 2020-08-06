@@ -2,7 +2,7 @@
 
 (ns crux.pull.server-test
   (:require
-   [crux.pull.graphql-test :refer [introspection-query]]
+   [crux.pull.eql-graphql-test :refer [introspection-query]]
    [clojure.test :refer [deftest is testing]]
    [crux.pull.http-client :as http]
    [clojure.pprint :refer [pprint]]
