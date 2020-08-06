@@ -1,21 +1,40 @@
 ;; Copyright © 2020, JUXT LTD.
 
-(ns crux.pull.schema-test
+(ns crux.pull.graphql.schema-test
   (:require
    [crux.api :as crux]
-   [crux.pull.alpha.eql.graphql :as graphql]
+   [crux.pull.alpha.graphql :as graphql]
    [crux.pull.eql-graphql-test :refer [introspection-query]]
    [cheshire.core :as json]
    [clojure.test :refer [deftest is are testing]]))
 
-
 (comment
   (do
 
-    (defn ^{:graphql/name "ExecuteQuery"}
-      execute-query [query schema opts]
-      :ok
+    (defn ^{:graphql/name "ExecuteQuery"} execute-query [operation schema variable-values initial-value]
+      :todo
       )
+
+    (defn ^{:graphql/name "ExecuteRequest"} execute-request [schema document operation-name variable-values initial-value opts]
+      ;; 1. Let operation be the result of GetOperation(document, operationName).
+      (let [operation (graphql/get-operation document operation-name)
+            ;; 2. Let coercedVariableValues be the result of
+            ;; CoerceVariableValues(schema, operation, variableValues). (TODO)
+            coerced-variable-values variable-values]
+
+        (case (:operation-type operation)
+          ;; 3. If operation is a
+          "query" ;; operation:
+          ;;   a. Return ExecuteQuery(operation, schema, coercedVariableValues,
+          ;;   initialValue).
+          (execute-query operation schema coerced-variable-values initial-value)
+
+          ;; 4. Otherwise if operation is a mutation operation:
+          ;;   a. Return ExecuteMutation(operation, schema, coercedVariableValues, initialValue).
+
+          ;; 5. Otherwise if operation is a subscription operation:
+          ;;   a. Return Subscribe(operation, schema, coercedVariableValues, initialValue).
+          )))
 
     (let [attribute-to-graphql-field
           (fn [attr]
@@ -141,12 +160,12 @@
 
           ;; Query the schema with GraphQL execution
 
-          (-> introspection-query
-              graphql/parse-graphql
-              graphql/validate-graphql-document
-              (graphql/graphql-operation "IntrospectionQuery")
-              ;; Attempt to execute this query against the schema
-              (execute-query schema {:variables [] :initial-value :Root}))
+          (let [document (-> introspection-query
+                             graphql/parse-graphql
+                             graphql/validate-graphql-document)]
+            ;; Attempt to execute this query against the schema
+            (execute-request schema document "IntrospectionQuery" {} (crux/entity db :ex.type/graphql-query-root) {})
+            )
 
           )))))
 
