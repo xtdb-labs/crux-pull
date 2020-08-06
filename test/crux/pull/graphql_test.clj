@@ -3,7 +3,7 @@
 (ns crux.pull.graphql-test
   (:require
    [jsonista.core :as json]
-   [crux.pull.alpha.graphql :as graphql]
+   [crux.pull.alpha.eql.graphql :as graphql]
    [crux.pull.alpha.eql :refer [prepare-query eql-query]]
    [clojure.test :refer [deftest is]]
    [edn-query-language.core :as eql]))

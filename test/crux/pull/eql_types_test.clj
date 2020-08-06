@@ -3,7 +3,7 @@
 (ns crux.pull.eql-types-test
   (:require
    [clojure.test :refer [deftest is testing]]
-   [crux.pull.alpha.graphql :as graphql]
+   [crux.pull.alpha.eql.graphql :as graphql]
    [edn-query-language.core :as eql]))
 
 (deftest eql-ast-node-to-graphql-types-test

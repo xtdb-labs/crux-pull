@@ -1,6 +1,6 @@
 ;; Copyright © 2020, JUXT LTD.
 
-(ns crux.pull.alpha.graphql
+(ns crux.pull.alpha.eql.graphql
   (:require
    [clojure.string :as str]
    [juxt.reap.alpha.graphql :as reap-graphql]
@@ -62,19 +62,21 @@
       (throw (ex-info "Invalid GraphQL document" {:doc doc})))
   doc)
 
-(defn graphql-operation
-    "Extract the GraphQL operation from the parsed document, dereferencing any
-  fragment references."
-    ([doc]
-     (when-let [op
-                (let [ops (filter #(= (:operation-type %) "query") (operations doc))]
-                  (if (= (count ops) 1)
-                    (first ops)
-                    (graphql-operation doc nil)))]
-       (reap-graphql-util/deref-fragments op doc)))
-    ([doc op-name]
-     (when-let [op (some #(when (= (:name %) op-name) %) doc)]
-       (reap-graphql-util/deref-fragments op doc))))
+(defn
+  ^{:graphql/name "GetOperation"}
+  graphql-operation
+  "Extract the GraphQL operation from the parsed document, dereferencing any
+  fragment references. Equivalent to GetOperation from spec."
+  ([doc]
+   (when-let [op
+              (let [ops (filter #(= (:operation-type %) "query") (operations doc))]
+                (if (= (count ops) 1)
+                  (first ops)
+                  (graphql-operation doc nil)))]
+     (reap-graphql-util/deref-fragments op doc)))
+  ([doc op-name]
+   (when-let [op (some #(when (= (:name %) op-name) %) doc)]
+     (reap-graphql-util/deref-fragments op doc))))
 
 (defn eql-keyword [s]
     (when s

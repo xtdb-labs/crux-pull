@@ -5,7 +5,7 @@
    [integrant.core :as ig]
    [ring.adapter.jetty :as jetty]
    [crux.pull.alpha.eql :refer [prepare-query eql-query]]
-   [crux.pull.alpha.graphql :as graphql]
+   [crux.pull.alpha.eql.graphql :as graphql]
    [jsonista.core :as json]
    [edn-query-language.core :as eql]
    [crux.api :as crux]
