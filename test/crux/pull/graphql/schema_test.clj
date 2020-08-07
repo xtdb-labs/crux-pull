@@ -62,14 +62,58 @@
        (ordered-map)                    ; grouped-fields
        selection-set))
 
+    (defn ^{:crux.graphql.spec-ref/version "June2018"
+            :crux.graphql.spec-ref/section "6.4.1"
+            :crux.graphql.spec-ref/algorithm "CoerceArgumentValues"}
+      coerce-argument-values
+      [{:keys [object-type field variable-values]}]
+      (throw (ex-info "TODO" (meta #'coerce-argument-values))))
+
+    (defn ^{:crux.graphql.spec-ref/version "June2018"
+            :crux.graphql.spec-ref/section "6.4.2"
+            :crux.graphql.spec-ref/algorithm "ResolveFieldValue"}
+      resolve-field-value
+      [{:keys [object-type object-value field-name argument-values]}]
+      (throw (ex-info "TODO" (meta #'resolve-field-value))))
+
+    (defn ^{:crux.graphql.spec-ref/version "June2018"
+            :crux.graphql.spec-ref/section "6.4.3"
+            :crux.graphql.spec-ref/algorithm "CompleteValue"}
+      complete-value
+      [{:keys [field-type fields result variable-values]}]
+      (throw (ex-info "TODO" (meta #'complete-value))))
+
     (defn
       ^{:crux.graphql.spec-ref/version "June2018"
         :crux.graphql.spec-ref/section "6.4"
         :crux.graphql.spec-ref/algorithm "ExecuteField"}
       execute-field
       [{:keys [object-type object-value field-type fields variable-values]}]
-      :response-value
-      )
+
+      ;; 1. Let field be the first entry in fields.
+      (let [field (first fields)
+            ;; 2. Let fieldName be the field name of field.
+            field-name (:name field)
+            ;; 3. Let argumentValues be the result of CoerceArgumentValues(…).
+            argument-values
+            (coerce-argument-values
+             {:object-type object-type
+              :field field
+              :variable-values variable-values})
+
+            ;; 4. Let resolvedValue be ResolveFieldValue(…).
+            resolved-value
+            (resolve-field-value
+             {:object-type object-type
+              :object-value object-value
+              :field-name field-name
+              :argument-values argument-values})]
+
+        ;; 5. Return the result of CompleteValue(…).
+        (complete-value {:field-type field-type
+                         :fields fields
+                         :resolved-value resolved-value
+                         :variable-values variable-values})))
 
     (defn
       ^{:crux.graphql.spec-ref/version "June2018"
@@ -94,7 +138,7 @@
            ;; This value is unaffected if an alias is used.
            (let [field-name (:name (first fields))
                  ;; b. Let fieldType be the return type defined for the field fieldName of objectType.
-                 field-type (some #(when (= (get % "name") field-name) (get % "type" {})) (get object-type "fields"))]
+                 field-type (some #(when (= (get % "name") field-name) (get % "type")) (get object-type "fields"))]
 
              ;; c. If fieldType is defined:
              (if field-type
@@ -108,8 +152,7 @@
                        :fields fields
                        :variable-values variable-values})]
                  ;; ii. Set responseValue as the value for responseKey in resultMap.
-                 (conj result-map [response-key response-value])
-                 )
+                 (conj result-map [response-key response-value]))
                ;; Otherwise return the accumulator
                result-map)))
          result-map
@@ -177,11 +220,11 @@
           ;;   a. Return Subscribe(operation, schema, coercedVariableValues, initialValue).
           )))
 
-    (defn- attribute-to-graphql-field [attr]
+    (defn- attribute-to-graphql-field [db attr]
       (let [{:crux.graphql/keys [name]
-             :crux.schema/keys [description]
+             :crux.schema/keys [description cardinality]
+             t :crux.schema/type
              :as args} attr]
-        (prn attr description)
         ;; Name is mandatory, ex-info is missing!
         (cond-> {}
           true (conj
@@ -190,10 +233,26 @@
                   (throw (ex-info "Missing :crux.graphql/name" {:attribute attr}))))
           description (conj ["description" description])
           ;; TODO: args
-          ;; TODO: type
+          t (conj {"type"
+                   (cond
+                     (= t String)
+                     {"kind" "SCALAR" "name" "String"}
+                     (= t Long)
+                     {"kind" "SCALAR" "name" "Long"}
+                     (keyword? t)
+                     (let [{:crux.graphql/keys [name]} (crux/entity db t)]
+                       (case cardinality
+                         :crux.schema.cardinality/zero-or-more
+                         {"kind" "LIST"
+                          "name" nil
+                          "ofType" name}
+
+                         {"kind" "OBJECT"
+                          "name" name
+                          "ofType" nil})))})
           true (conj {"isDeprecated" false}))))
 
-    (defn- entity-to-graphql-type [e]
+    (defn- entity-to-graphql-type [db e]
       (cond
         (= e String)
         {"kind" "SCALAR" "name" "String"}
@@ -202,14 +261,12 @@
         (map? e)
         (let [{:crux.graphql/keys [name]
                :crux.schema/keys [description attributes]
-               t :crux.schema/type}
-              e]
+               t :crux.schema/type} e]
           (cond-> {}
             t (conj ["kind" "OBJECT"])
             name (conj ["name" name])
             description (conj ["description" description])
-            attributes (conj ["fields" (mapv attribute-to-graphql-field (vals attributes))])
-            ))
+            attributes (conj ["fields" (mapv #(attribute-to-graphql-field db %) (vals attributes))])))
         :else (throw (ex-info "Condition not supported" {:entity e}))))
 
     (with-open
@@ -269,14 +326,11 @@
                  {:crux.schema/description "All the films in the James Bond universe."
                   :crux.schema/type :ex.type/film
                   :crux.schema/cardinality :crux.schema.cardinality/zero-or-more
-                  :crux.graphql/name "allFilms"
-                  }
+                  :crux.graphql/name "allFilms"}
                  :film
                  {:crux.schema/description "A particular film in the James Bond universe."
                   :crux.schema/type :ex.type/film
-                  :crux.graphql/name "film"}
-                 }}
-
+                  :crux.graphql/name "film"}}}
                ]]
           [:crux.tx/put ent])))
 
@@ -284,7 +338,7 @@
             schema
             (-> {"queryType" "Root"
                  "types"
-                 (mapv entity-to-graphql-type
+                 (mapv #(entity-to-graphql-type db %)
                        [(crux/entity db :ex.type/graphql-query-root)
                         ;; TODO: All the rest should be discovered via graph traversal
                         (crux/entity db :ex.type/film)
@@ -311,14 +365,14 @@
 
           ;; TODO: Introspection (Attempt to execute this query against the schema)
 
-          schema
+          #_schema
           ;;
-          #_(execute-request
-             {:schema schema
-              :document document
-              :operation-name "GetFilms" #_"IntrospectionQuery"
-              :variable-values {}
-              :initial-value (crux/entity db :ex.type/graphql-query-root)}))))))
+          (execute-request
+           {:schema schema
+            :document document
+            :operation-name "GetFilms" #_"IntrospectionQuery"
+            :variable-values {}
+            :initial-value (crux/entity db :ex.type/graphql-query-root)}))))))
 
 ;; https://en.wikipedia.org/wiki/Functional_dependency
 ;; https://en.wikipedia.org/wiki/Armstrong%27s_axioms
