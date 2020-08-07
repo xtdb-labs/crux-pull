@@ -6,7 +6,8 @@
    [crux.pull.alpha.graphql :as graphql]
    [crux.pull.eql-graphql-test :refer [introspection-query]]
    [cheshire.core :as json]
-   [clojure.test :refer [deftest is are testing]]))
+   [clojure.test :refer [deftest is are testing]]
+   [flatland.ordered.map :refer [ordered-map]]))
 
 (comment
   (do
@@ -14,27 +15,61 @@
     (defn validate-schema [schema]
       (when-not (get schema "types")
         (throw
-         (ex-info "Schema validation error: types is required"
-                  {:schema schema})))
+         (ex-info
+          "Schema validation error: types is required"
+          {:schema schema})))
 
       (when-not (get schema "queryType")
         (throw
-         (ex-info "Schema validation error: queryType is required"
-                  {:schema schema})))
+         (ex-info
+          "Schema validation error: queryType is required"
+          {:schema schema})))
 
       (when-not (get schema "directives")
         (throw
-         (ex-info "Schema validation error: directives is required"
-                  {:schema schema})))
+         (ex-info
+          "Schema validation error: directives is required"
+          {:schema schema})))
 
       schema)
 
-    (defn ^{:crux.graphql.spec-ref/version "June2018"
-            :crux.graphql.spec-ref/section "6.3.2"
-            :crux.graphql.spec-ref/algorithm "CollectFields"}
+    (defn
+      ^{:crux.graphql.spec-ref/version "June2018"
+        :crux.graphql.spec-ref/section "6.3.2"
+        :crux.graphql.spec-ref/algorithm "CollectFields"}
       collect-fields
-      [{:keys [object-type selection-set variable-values visited-fragments]}]
-      :collect-fields)
+      [{:keys [object-type selection-set variable-values visited-fragments]
+        ;; 1. If visitedFragments if not provided, initialize it to the empty
+        ;; set.
+        :or {visited-fragments {}}}]
+
+      (reduce
+       (fn [grouped-fields [selection-type m]]
+         (case selection-type
+           :field
+
+           (let [response-key
+                 ;; TODO: The response-key will be the alias, if it exists
+                 (:name m)]
+             (update grouped-fields response-key (fnil conj []) m))
+
+           :fragment-spread
+           (throw (ex-info "TODO: fragment-spread" {}))
+
+           :inline-fragment
+           (throw (ex-info "TODO: inline-fragment" {}))))
+
+       (ordered-map)                    ; grouped-fields
+       selection-set))
+
+    (defn
+      ^{:crux.graphql.spec-ref/version "June2018"
+        :crux.graphql.spec-ref/section "6.4"
+        :crux.graphql.spec-ref/algorithm "ExecuteField"}
+      execute-field
+      [{:keys [object-type object-value field-type fields variable-values]}]
+      :response-value
+      )
 
     (defn
       ^{:crux.graphql.spec-ref/version "June2018"
@@ -42,15 +77,43 @@
         :crux.graphql.spec-ref/algorithm "ExecuteSelectionSet"}
       execute-selection-set-normally
       "Return a map with :data and :errors."
-      [{:keys [selection-set object-type initial-value variable-values]}]
+      [{:keys [selection-set object-type object-value variable-values]}]
+      ;; 1. Let groupedFieldSet be the result of CollectFields
       (let [grouped-field-set
             (collect-fields
              {:object-type object-type
               :selection-set selection-set
               :variable-values variable-values})
-            ;;result-map
-            ]
-        {:data grouped-field-set :errors []}))
+            ;; 2. Initialize resultMap to an empty ordered map.
+            result-map (ordered-map)]
+
+        ;; 3. For each groupedFieldSet as responseKey and fields:
+        (reduce
+         (fn [result-map [response-key fields]]
+           ;; a. Let fieldName be the name of the first entry in fields. Note:
+           ;; This value is unaffected if an alias is used.
+           (let [field-name (:name (first fields))
+                 ;; b. Let fieldType be the return type defined for the field fieldName of objectType.
+                 field-type (some #(when (= (get % "name") field-name) (get % "type" {})) (get object-type "fields"))]
+
+             ;; c. If fieldType is defined:
+             (if field-type
+               ;; i. Let responseValue be ExecuteField(objectType, objectValue,
+               ;; fields, fieldType, variableValues).
+               (let [response-value
+                     (execute-field
+                      {:object-type object-type
+                       :object-value object-value
+                       :field-type field-type
+                       :fields fields
+                       :variable-values variable-values})]
+                 ;; ii. Set responseValue as the value for responseKey in resultMap.
+                 (conj result-map [response-key response-value])
+                 )
+               ;; Otherwise return the accumulator
+               result-map)))
+         result-map
+         grouped-field-set)))
 
     (defn
       ^{:crux.graphql.spec-ref/version "June2018"
@@ -79,7 +142,7 @@
           ;; 6. Return an unordered map containing data and errors.
           (execute-selection-set-normally
            {:selection-set selection-set
-            :query-type query-type
+            :object-type query-type
             :initial-value initial-value
             :variable-values variable-values}))))
 
@@ -104,6 +167,8 @@
             :schema schema
             :variable-values coerced-variable-values
             :initial-value initial-value})
+
+          (throw (ex-info "No operation type on operation" {:operation operation}))
 
           ;; 4. Otherwise if operation is a mutation operation:
           ;;   a. Return ExecuteMutation(operation, schema, coercedVariableValues, initialValue).
@@ -239,14 +304,19 @@
 
           ;; Query the schema with GraphQL execution
 
-          (let [document (-> introspection-query
-                             graphql/parse-graphql
-                             graphql/validate-graphql-document)]
-            ;; Attempt to execute this query against the schema
+          (let [document (->
+                          "query GetFilms { allFilms { filmName }}"
+                          #_introspection-query
+                          graphql/parse-graphql
+                          graphql/validate-graphql-document)]
+
+            ;; TODO: Introspection (Attempt to execute this query against the schema)
+
+            ;;
             (execute-request
              {:schema schema
               :document document
-              :operation-name "IntrospectionQuery"
+              :operation-name "GetFilms" #_"IntrospectionQuery"
               :variable-values {}
               :initial-value (crux/entity db :ex.type/graphql-query-root)})))))))
 
