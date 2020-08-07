@@ -11,11 +11,66 @@
 (comment
   (do
 
-    (defn ^{:graphql/name "ExecuteQuery"} execute-query [operation schema variable-values initial-value]
-      :todo
-      )
+    (defn validate-schema [schema]
+      (when-not (get schema "types")
+        (throw
+         (ex-info "Schema validation error: types is required"
+                  {:schema schema})))
 
-    (defn ^{:graphql/name "ExecuteRequest"} execute-request [schema document operation-name variable-values initial-value opts]
+      (when-not (get schema "queryType")
+        (throw
+         (ex-info "Schema validation error: queryType is required"
+                  {:schema schema})))
+
+      (when-not (get schema "directives")
+        (throw
+         (ex-info "Schema validation error: directives is required"
+                  {:schema schema})))
+
+      schema)
+
+    (defn
+      ^{:crux.graphql.spec-ref/version "June2018"
+        :crux.graphql.spec-ref/section "6.3"
+        :crux.graphql.spec-ref/algorithm "ExecuteSelectionSet"}
+      execute-selection-set-normally
+      "Return a map with :data and :errors."
+      [selection-set query-type initial-value]
+
+      {:data :ok :errors []})
+
+    (defn
+      ^{:crux.graphql.spec-ref/version "June2018"
+        :crux.graphql.spec-ref/section "6.2.1"
+        :crux.graphql.spec-ref/algorithm "ExecuteQuery"}
+      execute-query [query schema variable-values initial-value]
+
+      ;; 1. Let queryType be the root Query type in schema.
+      (let [query-type-name (get schema "queryType")
+            query-type (some #(when (= (get % "name") query-type-name) %) (get schema "types"))]
+
+        ;; 2. Assert: queryType is an Object type.
+        (when-not (= (get query-type "kind") "OBJECT2")
+          (throw (ex-info
+                  "Query type must be an OBJECT"
+                  (into
+                   {:query-type query-type
+                    :crux.graphql.spec-ref/step 2}
+                   (meta #'execute-query)))))
+
+        ;; 3. Let selectionSet be the top level Selection Set in query.
+        (let [selection-set (:selection-set query)]
+          ;; 4. Let data be the result of running ExecuteSelectionSet
+          ;; normally (allowing parallelization).
+          ;; 5. Let errors be any field errors produced while executing the selection set.
+          ;; 6. Return an unordered map containing data and errors.
+          (execute-selection-set-normally selection-set query-type initial-value))))
+
+    (defn
+      ^{:crux.graphql.spec-ref/version "June2018"
+        :crux.graphql.spec-ref/section "6.1"
+        :crux.graphql.spec-ref/algorithm "ExecuteRequest"}
+      execute-request [schema document operation-name variable-values initial-value opts]
       ;; 1. Let operation be the result of GetOperation(document, operationName).
       (let [operation (graphql/get-operation document operation-name)
             ;; 2. Let coercedVariableValues be the result of
@@ -142,14 +197,17 @@
             [:crux.tx/put ent])))
 
         (let [db (crux/db node)
-              schema {:types
-                      (mapv entity-to-graphql-type
-                            [(crux/entity db :ex.type/graphql-query-root)
-                             ;; TODO: All the rest should be discovered via graph traversal
-                             (crux/entity db :ex.type/film)
-                             (crux/entity db :ex.type/vehicle)
-                             String
-                             ])}]
+              schema (-> {"queryType" "Root"
+                          "types"
+                          (mapv entity-to-graphql-type
+                                [(crux/entity db :ex.type/graphql-query-root)
+                                 ;; TODO: All the rest should be discovered via graph traversal
+                                 (crux/entity db :ex.type/film)
+                                 (crux/entity db :ex.type/vehicle)
+                                 String
+                                 ])
+                          "directives" []}
+                         validate-schema)]
 
           ;; Extract GraphQL types to file, just to compare
           (spit "/tmp/schema.json"
