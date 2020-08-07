@@ -67,14 +67,38 @@
             :crux.graphql.spec-ref/algorithm "CoerceArgumentValues"}
       coerce-argument-values
       [{:keys [object-type field variable-values]}]
-      (throw (ex-info "TODO" (meta #'coerce-argument-values))))
+
+      (let [
+            ;; 1. Let coercedValues be an empty unordered Map.
+            coerced-values {}
+            ;; 2. Let argumentValues be the argument values provided in field.
+            argument-values (:arguments field)
+            ;; 3. Let fieldName be the name of field.
+            field-name (:name field)
+            ;; 4. Let argumentDefinitions be the arguments defined by objectType
+            ;; for the field named fieldName.
+            argument-definitions (some #(when (= (get % "name") field-name) (get % "args")) (get :object-type "fields"))
+            ]
+
+        #_(reduce
+           (fn [])
+           argument-definitions)
+
+        #_(throw (ex-info "TODO" {:field field
+                                  :object-type object-type}))
+        {}))
 
     (defn ^{:crux.graphql.spec-ref/version "June2018"
             :crux.graphql.spec-ref/section "6.4.2"
             :crux.graphql.spec-ref/algorithm "ResolveFieldValue"}
       resolve-field-value
       [{:keys [object-type object-value field-name argument-values]}]
-      (throw (ex-info "TODO" (meta #'resolve-field-value))))
+      (throw (ex-info "TODO" (merge
+                              {:object-type object-type
+                               :object-value object-value
+                               :field-name field-name
+                               :argument-values argument-values}
+                              (meta #'resolve-field-value)) )))
 
     (defn ^{:crux.graphql.spec-ref/version "June2018"
             :crux.graphql.spec-ref/section "6.4.3"
@@ -162,7 +186,8 @@
       ^{:crux.graphql.spec-ref/version "June2018"
         :crux.graphql.spec-ref/section "6.2.1"
         :crux.graphql.spec-ref/algorithm "ExecuteQuery"}
-      execute-query [{:keys [query schema variable-values initial-value]}]
+      execute-query
+      [{:keys [query schema variable-values initial-value]}]
 
       ;; 1. Let queryType be the root Query type in schema.
       (let [query-type-name (get schema "queryType")
@@ -186,7 +211,7 @@
           (execute-selection-set-normally
            {:selection-set selection-set
             :object-type query-type
-            :initial-value initial-value
+            :object-value initial-value
             :variable-values variable-values}))))
 
     (defn
@@ -211,13 +236,17 @@
             :variable-values coerced-variable-values
             :initial-value initial-value})
 
-          (throw (ex-info "No operation type on operation" {:operation operation}))
-
           ;; 4. Otherwise if operation is a mutation operation:
           ;;   a. Return ExecuteMutation(operation, schema, coercedVariableValues, initialValue).
 
+          ;; TODO
+
           ;; 5. Otherwise if operation is a subscription operation:
           ;;   a. Return Subscribe(operation, schema, coercedVariableValues, initialValue).
+
+          ;; TODO
+
+          (throw (ex-info "No operation type on operation" {:operation operation}))
           )))
 
     (defn- attribute-to-graphql-field [db attr]
