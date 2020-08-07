@@ -4,7 +4,9 @@
   (:require
    [crux.api :as crux]
    [crux.pull.alpha.graphql :as graphql]
+   [clojure.java.io :as io]
    [crux.pull.eql-graphql-test :refer [introspection-query]]
+   [clojure.edn :as edn]
    [cheshire.core :as json]
    [clojure.test :refer [deftest is are testing]]
    [flatland.ordered.map :refer [ordered-map]]))
@@ -92,27 +94,89 @@
             :crux.graphql.spec-ref/section "6.4.2"
             :crux.graphql.spec-ref/algorithm "ResolveFieldValue"}
       resolve-field-value
-      [{:keys [object-type object-value field-name argument-values]}]
-      (throw (ex-info "TODO" (merge
-                              {:object-type object-type
-                               :object-value object-value
-                               :field-name field-name
-                               :argument-values argument-values}
-                              (meta #'resolve-field-value)) )))
+      [{:keys [object-type object-value field-name argument-values field-resolver]}]
+      (assert field-resolver)
+      (field-resolver
+       {:object-type object-type
+        :field-name field-name
+        :object-value object-value
+        :argument-values argument-values}))
 
     (defn ^{:crux.graphql.spec-ref/version "June2018"
             :crux.graphql.spec-ref/section "6.4.3"
             :crux.graphql.spec-ref/algorithm "CompleteValue"}
       complete-value
       [{:keys [field-type fields result variable-values]}]
-      (throw (ex-info "TODO" (meta #'complete-value))))
+
+      (cond
+        ;; 1. If the fieldType is a Non‐Null type:
+        (= (get field-type "kind") "NON_NULL")
+        ;; a. Let innerType be the inner type of fieldType.
+        (let [inner-type (get field-type "ofType")
+              ;; b. Let completedResult be the result of calling
+              ;; CompleteValue(…).
+              completed-result
+              (complete-value
+               {:field-type inner-type
+                :fields fields
+                :result result
+                :variable-values variable-values})]
+          ;; c. If completedResult is null, throw a field error.
+          (when (nil? completed-result)
+            (throw (ex-info "Field error" {:field-type inner-type})))
+          ;; d. Return completedResult.
+          completed-result)
+
+        ;; 2. If result is null (or another internal value similar to null such
+        ;; as undefined or NaN), return null.
+        (nil? result) nil
+
+        ;; 3. If fieldType is a List type:
+        (= (get field-type "kind") "LIST")
+        (do
+          ;; a. If result is not a collection of values, throw a field error.
+          (when-not (sequential? result)
+            (throw (ex-info "Resolver must return a collection" {:field-type field-type}))
+            )
+          ;; b. Let innerType be the inner type of fieldType.
+          (let [inner-type (get field-type "ofType")]
+            ;; c. Return a list where each list item is the result of calling
+            ;; CompleteValue(innerType, fields, resultItem, variableValues),
+            ;; where resultItem is each item in result.
+            (for [result-item result]
+              (complete-value
+               {:field-type inner-type
+                :fields fields
+                :result result-item
+                :variable-values variable-values}))))
+
+        ;; 4. If fieldType is a Scalar or Enum type:
+        (#{"SCALAR" "ENUM"} (get field-type "kind"))
+        ;; a. Return the result of “coercing” result, ensuring it is a legal value of fieldType, otherwise null.
+        result
+
+        (#{"OBJECT" "INTERFACE" "UNION"} (get field-type "kind"))
+        (throw
+         (ex-info
+          (str "TODO: Handle " (get field-type "kind"))
+          (merge
+           {:field-type field-type}
+           (meta #'complete-value))))
+
+        :else
+        (throw
+         (ex-info
+          "TODO: Complete value"
+          (merge
+           {:field-type field-type}
+           (meta #'complete-value))))))
 
     (defn
       ^{:crux.graphql.spec-ref/version "June2018"
         :crux.graphql.spec-ref/section "6.4"
         :crux.graphql.spec-ref/algorithm "ExecuteField"}
       execute-field
-      [{:keys [object-type object-value field-type fields variable-values]}]
+      [{:keys [object-type object-value field-type fields variable-values field-resolver]}]
 
       ;; 1. Let field be the first entry in fields.
       (let [field (first fields)
@@ -131,13 +195,15 @@
              {:object-type object-type
               :object-value object-value
               :field-name field-name
-              :argument-values argument-values})]
+              :argument-values argument-values
+              :field-resolver field-resolver})]
 
         ;; 5. Return the result of CompleteValue(…).
-        (complete-value {:field-type field-type
-                         :fields fields
-                         :resolved-value resolved-value
-                         :variable-values variable-values})))
+        (complete-value
+         {:field-type field-type
+          :fields fields
+          :result resolved-value
+          :variable-values variable-values})))
 
     (defn
       ^{:crux.graphql.spec-ref/version "June2018"
@@ -145,7 +211,7 @@
         :crux.graphql.spec-ref/algorithm "ExecuteSelectionSet"}
       execute-selection-set-normally
       "Return a map with :data and :errors."
-      [{:keys [selection-set object-type object-value variable-values]}]
+      [{:keys [selection-set object-type object-value variable-values field-resolver]}]
       ;; 1. Let groupedFieldSet be the result of CollectFields
       (let [grouped-field-set
             (collect-fields
@@ -174,7 +240,8 @@
                        :object-value object-value
                        :field-type field-type
                        :fields fields
-                       :variable-values variable-values})]
+                       :variable-values variable-values
+                       :field-resolver field-resolver})]
                  ;; ii. Set responseValue as the value for responseKey in resultMap.
                  (conj result-map [response-key response-value]))
                ;; Otherwise return the accumulator
@@ -187,7 +254,7 @@
         :crux.graphql.spec-ref/section "6.2.1"
         :crux.graphql.spec-ref/algorithm "ExecuteQuery"}
       execute-query
-      [{:keys [query schema variable-values initial-value]}]
+      [{:keys [query schema variable-values initial-value field-resolver]}]
 
       ;; 1. Let queryType be the root Query type in schema.
       (let [query-type-name (get schema "queryType")
@@ -212,13 +279,14 @@
            {:selection-set selection-set
             :object-type query-type
             :object-value initial-value
-            :variable-values variable-values}))))
+            :variable-values variable-values
+            :field-resolver field-resolver}))))
 
     (defn
       ^{:crux.graphql.spec-ref/version "June2018"
         :crux.graphql.spec-ref/section "6.1"
         :crux.graphql.spec-ref/algorithm "ExecuteRequest"}
-      execute-request [{:keys [schema document operation-name variable-values initial-value]}]
+      execute-request [{:keys [schema document operation-name variable-values initial-value field-resolver]}]
       ;; 1. Let operation be the result of GetOperation(document, operationName).
       (let [operation (graphql/get-operation document operation-name)
             ;; 2. Let coercedVariableValues be the result of
@@ -234,7 +302,8 @@
            {:query operation
             :schema schema
             :variable-values coerced-variable-values
-            :initial-value initial-value})
+            :initial-value initial-value
+            :field-resolver field-resolver})
 
           ;; 4. Otherwise if operation is a mutation operation:
           ;;   a. Return ExecuteMutation(operation, schema, coercedVariableValues, initialValue).
@@ -251,7 +320,7 @@
 
     (defn- attribute-to-graphql-field [db attr]
       (let [{:crux.graphql/keys [name]
-             :crux.schema/keys [description cardinality]
+             :crux.schema/keys [description cardinality required?]
              t :crux.schema/type
              :as args} attr]
         ;; Name is mandatory, ex-info is missing!
@@ -265,17 +334,33 @@
           t (conj {"type"
                    (cond
                      (= t String)
-                     {"kind" "SCALAR" "name" "String"}
-                     (= t Long)
-                     {"kind" "SCALAR" "name" "Long"}
+                     (if required?
+                       {"kind" "NON_NULL"
+                        "name" nil
+                        "ofType" {"kind" "SCALAR" "name" "String"}}
+                       {"kind" "SCALAR" "name" "String"})
+                     (= t Integer)
+                     (if required?
+                       {"kind" "NON_NULL"
+                        "name" nil
+                        "ofType" {"kind" "SCALAR" "name" "Int"}}
+                       {"kind" "SCALAR" "name" "Int"})
                      (keyword? t)
                      (let [{:crux.graphql/keys [name]} (crux/entity db t)]
-                       (case cardinality
-                         :crux.schema.cardinality/zero-or-more
+                       (cond
+                         (= cardinality :crux.schema.cardinality/zero-or-more)
                          {"kind" "LIST"
                           "name" nil
                           "ofType" name}
 
+                         required?
+                         {"kind" "NON_NULL"
+                          "name" name
+                          "ofType" {"kind" "OBJECT"
+                                    "name" name
+                                    "ofType" nil}}
+
+                         :else
                          {"kind" "OBJECT"
                           "name" name
                           "ofType" nil})))})
@@ -285,8 +370,8 @@
       (cond
         (= e String)
         {"kind" "SCALAR" "name" "String"}
-        (= e Long)
-        {"kind" "SCALAR" "name" "Long"}
+        (= e Integer)
+        {"kind" "SCALAR" "name" "Int"}
         (map? e)
         (let [{:crux.graphql/keys [name]
                :crux.schema/keys [description attributes]
@@ -314,17 +399,17 @@
                 :crux.graphql/name "Film"
                 :crux.schema/attributes
                 {:film/name
-                 {:crux.graphql/name "filmName"
-                  :crux.schema/required? true}
-                 :film/box
-                 {:crux.schema/type Long
-                  :crux.schema/description "How much the film made at the box office"
+                 {:crux.schema/description "The film's title"
+                  :crux.schema/type String
                   :crux.schema/required? true
+                  :crux.graphql/name "filmName"}
+                 :film/box
+                 {:crux.schema/type Integer
+                  :crux.schema/description "How much the film made at the box office"
                   :crux.graphql/name "box"}
                  :film/cost
                  {:crux.schema/description "How much the film cost to make"
-                  :crux.schema/type Long
-                  :crux.schema/required? true
+                  :crux.schema/type Integer
                   :crux.graphql/name "cost"}
                  :film/earnings
                  {:crux.schema/type String
@@ -359,9 +444,15 @@
                  :film
                  {:crux.schema/description "A particular film in the James Bond universe."
                   :crux.schema/type :ex.type/film
-                  :crux.graphql/name "film"}}}
-               ]]
+                  :crux.graphql/name "film"}}}]]
           [:crux.tx/put ent])))
+
+      (crux/await-tx
+       node
+       (crux/submit-tx
+        node
+        (for [record (edn/read-string (slurp (io/resource "james-bond.edn")))]
+          [:crux.tx/put record])))
 
       (let [db (crux/db node)
             schema
@@ -386,22 +477,58 @@
 
         ;; Query the schema with GraphQL execution
 
-        (let [document (->
-                        "query GetFilms { allFilms { filmName }}"
-                        #_introspection-query
-                        graphql/parse-graphql
-                        graphql/validate-graphql-document)]
+        (let [document
+              (->
+               "query GetFilms { allFilms { filmName }}"
+               #_introspection-query
+               graphql/parse-graphql
+               graphql/validate-graphql-document)]
 
           ;; TODO: Introspection (Attempt to execute this query against the schema)
 
-          #_schema
-          ;;
           (execute-request
            {:schema schema
             :document document
             :operation-name "GetFilms" #_"IntrospectionQuery"
             :variable-values {}
-            :initial-value (crux/entity db :ex.type/graphql-query-root)}))))))
+            :initial-value (crux/entity db :ex.type/graphql-query-root)
+            :field-resolver
+            (fn [{:keys [object-type field-name object-value argument-values] :as args}]
+              (let [field (some
+                           #(when (= (get % :crux.graphql/name) field-name) %)
+                           (vals (:crux.schema/attributes object-value)))
+                    field-type (:crux.schema/type field)
+                    _ (assert (keyword? field-type))
+
+                    e (crux/entity db field-type)
+
+                    required-attributes
+                    (for [[k v] (:crux.schema/attributes e)
+                          :when (:crux.schema/required? v)]
+                      k)
+
+                    datalog
+                    {:find ['?e]
+                     :where (vec (for [k required-attributes]
+                                   ['?e k]))}
+
+                    results
+                    (map first (crux/q db datalog))]
+
+                ;;(prn results)
+                results
+
+                #_(throw
+                   (ex-info
+                    "TODO: resolve field!"
+                    (merge
+                     {:field field :field-type field-type
+                      :e e
+                      :results results
+                      :datalog datalog
+                      }
+                     args))))
+              )}))))))
 
 ;; https://en.wikipedia.org/wiki/Functional_dependency
 ;; https://en.wikipedia.org/wiki/Armstrong%27s_axioms
