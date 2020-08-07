@@ -29,21 +29,34 @@
 
       schema)
 
+    (defn ^{:crux.graphql.spec-ref/version "June2018"
+            :crux.graphql.spec-ref/section "6.3.2"
+            :crux.graphql.spec-ref/algorithm "CollectFields"}
+      collect-fields
+      [{:keys [object-type selection-set variable-values visited-fragments]}]
+      :collect-fields)
+
     (defn
       ^{:crux.graphql.spec-ref/version "June2018"
         :crux.graphql.spec-ref/section "6.3"
         :crux.graphql.spec-ref/algorithm "ExecuteSelectionSet"}
       execute-selection-set-normally
       "Return a map with :data and :errors."
-      [selection-set query-type initial-value]
-
-      {:data :ok :errors []})
+      [{:keys [selection-set object-type initial-value variable-values]}]
+      (let [grouped-field-set
+            (collect-fields
+             {:object-type object-type
+              :selection-set selection-set
+              :variable-values variable-values})
+            ;;result-map
+            ]
+        {:data grouped-field-set :errors []}))
 
     (defn
       ^{:crux.graphql.spec-ref/version "June2018"
         :crux.graphql.spec-ref/section "6.2.1"
         :crux.graphql.spec-ref/algorithm "ExecuteQuery"}
-      execute-query [query schema variable-values initial-value]
+      execute-query [{:keys [query schema variable-values initial-value]}]
 
       ;; 1. Let queryType be the root Query type in schema.
       (let [query-type-name (get schema "queryType")
@@ -64,13 +77,17 @@
           ;; normally (allowing parallelization).
           ;; 5. Let errors be any field errors produced while executing the selection set.
           ;; 6. Return an unordered map containing data and errors.
-          (execute-selection-set-normally selection-set query-type initial-value))))
+          (execute-selection-set-normally
+           {:selection-set selection-set
+            :query-type query-type
+            :initial-value initial-value
+            :variable-values variable-values}))))
 
     (defn
       ^{:crux.graphql.spec-ref/version "June2018"
         :crux.graphql.spec-ref/section "6.1"
         :crux.graphql.spec-ref/algorithm "ExecuteRequest"}
-      execute-request [schema document operation-name variable-values initial-value opts]
+      execute-request [{:keys [schema document operation-name variable-values initial-value]}]
       ;; 1. Let operation be the result of GetOperation(document, operationName).
       (let [operation (graphql/get-operation document operation-name)
             ;; 2. Let coercedVariableValues be the result of
@@ -82,7 +99,11 @@
           "query" ;; operation:
           ;;   a. Return ExecuteQuery(operation, schema, coercedVariableValues,
           ;;   initialValue).
-          (execute-query operation schema coerced-variable-values initial-value)
+          (execute-query
+           {:query operation
+            :schema schema
+            :variable-values coerced-variable-values
+            :initial-value initial-value})
 
           ;; 4. Otherwise if operation is a mutation operation:
           ;;   a. Return ExecuteMutation(operation, schema, coercedVariableValues, initialValue).
@@ -222,10 +243,12 @@
                              graphql/parse-graphql
                              graphql/validate-graphql-document)]
             ;; Attempt to execute this query against the schema
-            (execute-request schema document "IntrospectionQuery" {} (crux/entity db :ex.type/graphql-query-root) {})
-            )
-
-          )))))
+            (execute-request
+             {:schema schema
+              :document document
+              :operation-name "IntrospectionQuery"
+              :variable-values {}
+              :initial-value (crux/entity db :ex.type/graphql-query-root)})))))))
 
 ;; https://en.wikipedia.org/wiki/Functional_dependency
 ;; https://en.wikipedia.org/wiki/Armstrong%27s_axioms
