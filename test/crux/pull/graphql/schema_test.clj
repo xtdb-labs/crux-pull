@@ -50,7 +50,7 @@
             query-type (some #(when (= (get % "name") query-type-name) %) (get schema "types"))]
 
         ;; 2. Assert: queryType is an Object type.
-        (when-not (= (get query-type "kind") "OBJECT2")
+        (when-not (= (get query-type "kind") "OBJECT")
           (throw (ex-info
                   "Query type must be an OBJECT"
                   (into
