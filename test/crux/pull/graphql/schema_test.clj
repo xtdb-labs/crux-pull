@@ -170,14 +170,15 @@
           ;; CompleteValue(innerType, fields, resultItem, variableValues),
           ;; where resultItem is each item in result.
 
-          (for [result-item result]
-            (complete-value
-             {:field-type inner-type
-              :fields fields
-              :result result-item
-              :variable-values variable-values
-              :field-resolver field-resolver
-              :schema schema}))))
+          (doall
+           (for [result-item result]
+             (complete-value
+              {:field-type inner-type
+               :fields fields
+               :result result-item
+               :variable-values variable-values
+               :field-resolver field-resolver
+               :schema schema})))))
 
       ;; 4. If fieldType is a Scalar or Enum type:
       (#{"SCALAR" "ENUM"} (get field-type "kind"))
@@ -465,7 +466,7 @@
                 :else
                 (throw
                  (ex-info
-                  "TODO: resolve this!"
+                  "TODO: resolve type"
                   {:object-type object-type
                    :field-name field-name
                    :type-ref type-ref
@@ -533,9 +534,11 @@
               :crux.schema/attributes
               {:vehicle/brand
                {:crux.schema/type String
+                :crux.schema/required? true
                 :crux.graphql/name "brand"}
                :vehicle/model
                {:crux.schema/type String
+                :crux.schema/required? true
                 :crux.graphql/name "model"}}}
 
              {:crux.db/id :ex.type/graphql-query-root
@@ -585,7 +588,7 @@
 
       (let [document
             (->
-             "query GetFilms { allFilms { filmName box }}"
+             "query GetFilms { allFilms { filmName box vehicles { brand model }}}"
              #_introspection-query
              graphql/parse-graphql
              graphql/validate-graphql-document)
@@ -610,6 +613,7 @@
           :initial-value (crux/entity db :ex.type/graphql-query-root)
           :field-resolver
           (fn [{:keys [object-type field-name object-value argument-values] :as args}]
+            (println "resolving field" field-name "against object-value of" object-value)
             (let [[attr-k attr]
                   (some
                    #(when (= (get (second %) :crux.graphql/name) field-name) %)
@@ -653,7 +657,10 @@
                    :object-value object-value
                    :object-type object-type
                    :attr attr
-                   :field-type field-type})))))})))))
+                   :field-type field-type})))))})))
+
+    ;;(Thread/sleep 2000)
+    ))
 
 ;; https://en.wikipedia.org/wiki/Functional_dependency
 ;; https://en.wikipedia.org/wiki/Armstrong%27s_axioms
