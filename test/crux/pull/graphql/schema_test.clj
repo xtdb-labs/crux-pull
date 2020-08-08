@@ -15,8 +15,6 @@
 (do
 
   (defprotocol Schema
-    ;;(lookup-type-by-typeref [_ type-ref] "Return the GraphQL type")
-    ;;(lookup-type-by-graphql-name [_ type-name] "Return the GraphQL type")
     (resolve-type [_ object-type field-name]))
 
   (defn validate-schema [schema]
@@ -415,11 +413,6 @@
     Schema
 
     (resolve-type [this object-type field-name]
-      ;;(println)
-      ;;(println "RESOLVE TYPE>")
-      ;;(println "field-name:" field-name)
-      ;;(println "object-type:")
-      ;;(pprint object-type)
       (assert (:crux.schema/attributes object-type) "Not ours!")
       (let [result
             (let [attribute (some
@@ -477,10 +470,7 @@
                    :field-name field-name
                    :type-ref type-ref
                    :type-ref-type (type type-ref)}))))]
-        ;;(println "RETURN>")
-        ;;(pprint result)
-        result
-        )))
+        result)))
 
   (defmethod print-method DbSchema [c w]
     (print-method (into {} (assoc c :schema "(schema)")) w))
@@ -608,10 +598,6 @@
         ;; TODO: Introspection (Attempt to execute this query against the schema)
 
         ;; Schema is complected, separate into schema and 'type-resolver'
-
-        ;;(println "")
-        ;;(println "")
-        ;;(println "EXECUTE REQUEST")
 
         (execute-request
          {:schema (map->DbSchema
