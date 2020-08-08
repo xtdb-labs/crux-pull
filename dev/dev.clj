@@ -5,7 +5,7 @@
    [crux.api :as crux]
    [dev-extras :refer [system go reset]]))
 
-(set! *print-length* 20)
+(set! *print-length* 80)
 
 (defn crux []
   (:juxt.crux.ig/system system))

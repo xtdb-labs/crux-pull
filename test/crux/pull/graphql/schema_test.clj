@@ -301,11 +301,9 @@
                       {:crux.schema/attributes
                        {:root {:crux.graphql/name "Root"
                                :crux.schema/type :ex.type/graphql-query-root}}}
-                      query-type-name)
+                      query-type-name)]
 
-          ]
-
-      (println "query-type" (pr-str query-type))
+      #_(println "query-type" (pr-str query-type))
 
       ;; 2. Assert: queryType is an Object type.
       (when-not (= (get query-type "kind") "OBJECT")
@@ -417,11 +415,11 @@
     Schema
 
     (resolve-type [this object-type field-name]
-      (println)
-      (println "RESOLVE TYPE>")
-      (println "field-name:" field-name)
-      (println "object-type:")
-      (pprint object-type)
+      ;;(println)
+      ;;(println "RESOLVE TYPE>")
+      ;;(println "field-name:" field-name)
+      ;;(println "object-type:")
+      ;;(pprint object-type)
       (assert (:crux.schema/attributes object-type) "Not ours!")
       (let [result
             (let [attribute (some
@@ -435,14 +433,19 @@
                  "name" "String"
                  "typeOf" nil}
 
+                (= type-ref Integer)
+                {"kind" "SCALAR"
+                 "name" "Int"
+                 "typeOf" nil}
+
                 (keyword? type-ref)
                 (let [{:crux.graphql/keys [name]
                        :crux.schema/keys [attributes]
                        t :crux.schema/type}
                       (crux/entity db type-ref)]
-                  (println "description" (pr-str description))
-                  (println "cardinality" (pr-str cardinality))
-                  (println "required?" (pr-str required?))
+                  ;;(println "description" (pr-str description))
+                  ;;(println "cardinality" (pr-str cardinality))
+                  ;;(println "required?" (pr-str required?))
                   (cond
                     (= cardinality :crux.schema.cardinality/zero-or-more)
                     {"kind" "LIST"
@@ -474,40 +477,10 @@
                    :field-name field-name
                    :type-ref type-ref
                    :type-ref-type (type type-ref)}))))]
-        (println "RETURN>")
-        (pprint result)
+        ;;(println "RETURN>")
+        ;;(pprint result)
         result
-        ))
-
-    #_(lookup-type-by-typeref [this type-ref]
-        (cond
-          (keyword? type-ref)
-          (entity-to-graphql-type
-           (crux/entity db type-ref))
-
-          (= type-ref String)
-          {"kind" "SCALAR"
-           "name" "String"
-           "typeOf" nil}
-
-          :else
-          (throw
-           (ex-info
-            "TODO"
-            {:type-ref type-ref
-             :type-ref-type (type type-ref)}))))
-
-    #_(lookup-type-by-graphql-name [this type-name]
-        (if-let [eid (first
-                      (map
-                       first
-                       (crux/q
-                        db
-                        {:find ['?e]
-                         :args [{'?tn type-name}]
-                         :where [['?e :crux.graphql/name '?tn]]})))]
-          (lookup-type-by-typeref this eid)
-          (throw (ex-info "Failed to find entity relating to graphql type name" {:type-name type-name})))))
+        )))
 
   (defmethod print-method DbSchema [c w]
     (print-method (into {} (assoc c :schema "(schema)")) w))
@@ -548,7 +521,21 @@
                :film/vehicle
                {:crux.schema/type :ex.type/vehicle
                 :crux.schema/cardinality :crux.schema.cardinality/zero-or-more
-                :crux.graphql/name "vehicles"}}}
+                :crux.graphql/name "vehicles"}
+               :film/director
+               {:crux.schema/type :ex.type/director
+                :crux.schema/cardinality :crux.schema.cardinality/one
+                :crux.graphql/name "director"}}}
+
+             {:crux.db/id :ex.type/director
+              :crux.schema/type :crux.schema.type/relation
+              :crux.graphql/name "Director"
+              :crux.schema/attributes
+              {:person/name
+               {:crux.schema/type String
+                :crux.schema/required? true
+                :crux.graphql/name "name"
+                }}}
 
              {:crux.db/id :ex.type/vehicle
               :crux.schema/type :crux.schema.type/relation
@@ -608,7 +595,7 @@
 
       (let [document
             (->
-             "query GetFilms { allFilms { filmName }}"
+             "query GetFilms { allFilms { filmName box }}"
              #_introspection-query
              graphql/parse-graphql
              graphql/validate-graphql-document)
@@ -622,9 +609,9 @@
 
         ;; Schema is complected, separate into schema and 'type-resolver'
 
-        (println "")
-        (println "")
-        (println "EXECUTE REQUEST")
+        ;;(println "")
+        ;;(println "")
+        ;;(println "EXECUTE REQUEST")
 
         (execute-request
          {:schema (map->DbSchema
@@ -637,18 +624,26 @@
           :initial-value (crux/entity db :ex.type/graphql-query-root)
           :field-resolver
           (fn [{:keys [object-type field-name object-value argument-values] :as args}]
-            (let [field (some
-                         #(when (= (get % :crux.graphql/name) field-name) %)
-                         (vals (:crux.schema/attributes object-type)))
+            (let [[attr-k attr]
+                  (some
+                   #(when (= (get (second %) :crux.graphql/name) field-name) %)
+                   (:crux.schema/attributes object-type))
 
-                  field-type (:crux.schema/type field)]
+                  field-type (:crux.schema/type attr)]
 
               (cond
-                (keyword? field-type)
 
-                (let [e (crux/entity db field-type)
+                ;; A :crux.schema/type of a keyword, absolutely implies this is
+                ;; a reference to another relation. The cardinality is implied
+                ;; to be :crux.schema.cardinality/zero-or-more, but we should
+                ;; think about whether cardinality needs to be explicit in this
+                ;; case, and what other cardinalities would mean.
+                (keyword? field-type)
+                ;; Check type is list first?
+                (let [relation (crux/entity db field-type)
+
                       required-attributes
-                      (for [[k v] (:crux.schema/attributes e)
+                      (for [[k v] (:crux.schema/attributes relation)
                             :when (:crux.schema/required? v)]
                         k)
 
@@ -656,16 +651,22 @@
                       {:find ['?e]
                        :where (vec (for [k required-attributes]
                                      ['?e k]))}]
-                  (map first (crux/q db datalog)))
+                  (for [ref (map first (crux/q db datalog))]
+                    (crux/entity db ref)))
+
+                (#{String Integer} field-type)
+                ;; What if the :crux.schema/type of the field is different?
+                (get object-value attr-k)
 
                 :else
                 (throw
                  (ex-info
                   "TODO: resolve field"
-                  {:field-name field-name
+                  {:attr-k attr-k
+                   :field-name field-name
                    :object-value object-value
                    :object-type object-type
-                   :field field
+                   :attr attr
                    :field-type field-type})))))})))))
 
 ;; https://en.wikipedia.org/wiki/Functional_dependency
