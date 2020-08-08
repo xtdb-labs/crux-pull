@@ -360,57 +360,9 @@
 
         ;; TODO
 
-        (throw (ex-info "No operation type on operation" {:operation operation}))
-        )))
+        (throw (ex-info "No operation type on operation" {:operation operation})))))
 
-  #_(defn- attribute-to-graphql-field [db attr]
-      (let [{:crux.graphql/keys [name]
-             :crux.schema/keys [description cardinality required?]
-             t :crux.schema/type
-             :as args} attr]
-        (cond-> {}
-          true (conj
-                (if name
-                  ["name" name]
-                  (throw (ex-info "Missing :crux.graphql/name" {:attribute attr}))))
-          description (conj ["description" description])
-          ;; TODO: args
-          t (conj {"type"
-                   (cond
-                     (keyword? t)
-                     (let [{:crux.graphql/keys [name]} (crux/entity db t)]
-                       (cond
-                         (= cardinality :crux.schema.cardinality/zero-or-more)
-                         {"kind" "LIST"
-                          "name" nil
-                          "ofType" {"kind" "OBJECT"
-                                    "name" name
-                                    ;;"foo" "bar"
-                                    "ofType" nil}}
-
-                         required?
-                         {"kind" "NON_NULL"
-                          "name" name
-                          "ofType" {"kind" "OBJECT"
-                                    "name" name
-                                    "ofType" nil}}
-
-                         :else
-                         {"kind" "OBJECT"
-                          "name" name
-                          "ofType" nil}))
-
-                     :else
-                     (throw (ex-info "TODO" {})))})
-          true (conj {"isDeprecated" false}))))
-
-  #_(defn- entity-to-graphql-type [e]
-      (cond
-        (map? e) {}
-
-        :else (throw (ex-info "Condition not supported" {:entity e}))))
-
-  (defrecord DbSchema [db]
+    (defrecord DbSchema [db]
     Schema
 
     (resolve-type [this object-type field-name]
@@ -566,14 +518,6 @@
     (let [db (crux/db node)
           schema
           (-> {"queryType" "Root"
-               #_"types"
-               #_(mapv #(entity-to-graphql-type db %)
-                       [(crux/entity db :ex.type/graphql-query-root)
-                        ;; TODO: All the rest should be discovered via graph traversal
-                        (crux/entity db :ex.type/film)
-                        (crux/entity db :ex.type/vehicle)
-                        String
-                        ])
                "directives" []}
               validate-schema)]
 
@@ -657,10 +601,7 @@
                    :object-value object-value
                    :object-type object-type
                    :attr attr
-                   :field-type field-type})))))})))
-
-    ;;(Thread/sleep 2000)
-    ))
+                   :field-type field-type})))))})))))
 
 ;; https://en.wikipedia.org/wiki/Functional_dependency
 ;; https://en.wikipedia.org/wiki/Armstrong%27s_axioms
