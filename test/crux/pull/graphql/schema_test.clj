@@ -393,7 +393,7 @@
                   ;;(println "cardinality" (pr-str cardinality))
                   ;;(println "required?" (pr-str required?))
                   (cond
-                    (= cardinality :crux.schema.cardinality/zero-or-more)
+                    (= cardinality :crux.schema.cardinality/many)
                     {"kind" "LIST"
                      "name" nil
                      "ofType" {"kind" "OBJECT"
@@ -446,29 +446,37 @@
               {:film/name
                {:crux.schema/description "The film's title"
                 :crux.schema/type String
+                :crux.schema/cardinality :crux.schema.cardinality/one
                 :crux.schema/required? true
                 :crux.graphql/name "filmName"}
                :film/box
                {:crux.schema/type Integer
                 :crux.schema/description "How much the film made at the box office"
+                :crux.schema/cardinality :crux.schema.cardinality/one
+                :crux.schema/required? false
                 :crux.graphql/name "box"}
                :film/cost
-               {:crux.schema/description "How much the film cost to make"
-                :crux.schema/type Integer
+               {:crux.schema/type Integer
+                :crux.schema/description "How much the film cost to make"
+                :crux.schema/cardinality :crux.schema.cardinality/one
+                :crux.schema/required? false
                 :crux.graphql/name "cost"}
                :film/earnings
                {:crux.schema/type String
+                :crux.schema/cardinality :crux.schema.cardinality/one
+                :crux.schema/dependencies #{:film/box :film/cost}
                 :crux.schema/derived
                 ^:crux.memoize '(fn [{:film/keys [box cost]}] (- box cost))
                 :crux.graphql/name "earnings"}
                :film/vehicles
                {:crux.schema/type :ex.type/vehicle
                 :crux.schema/join :film/vehicles
-                :crux.schema/cardinality :crux.schema.cardinality/zero-or-more
+                :crux.schema/cardinality :crux.schema.cardinality/many
                 :crux.graphql/name "vehicles"}
                :film/director
                {:crux.schema/type :ex.type/director
                 :crux.schema/cardinality :crux.schema.cardinality/one
+                :crux.schema/required? true
                 :crux.graphql/name "director"}}}
 
              {:crux.db/id :ex.type/director
@@ -477,6 +485,7 @@
               :crux.schema/attributes
               {:person/name
                {:crux.schema/type String
+                :crux.schema/cardinality :crux.schema.cardinality/one
                 :crux.schema/required? true
                 :crux.graphql/name "name"}}}
 
@@ -486,10 +495,12 @@
               :crux.schema/attributes
               {:vehicle/brand
                {:crux.schema/type String
+                :crux.schema/cardinality :crux.schema.cardinality/one
                 :crux.schema/required? true
                 :crux.graphql/name "brand"}
                :vehicle/model
                {:crux.schema/type String
+                :crux.schema/cardinality :crux.schema.cardinality/one
                 :crux.schema/required? true
                 :crux.graphql/name "model"}}}
 
@@ -500,11 +511,12 @@
               {:all-films
                {:crux.schema/description "All the films in the James Bond universe."
                 :crux.schema/type :ex.type/film
-                :crux.schema/cardinality :crux.schema.cardinality/zero-or-more
+                :crux.schema/cardinality :crux.schema.cardinality/many
                 :crux.graphql/name "allFilms"}
                :film
                {:crux.schema/description "A particular film in the James Bond universe."
                 :crux.schema/type :ex.type/film
+                :crux.schema/cardinality :crux.schema.cardinality/one
                 :crux.graphql/name "film"}}}]]
         [:crux.tx/put ent])))
 
@@ -587,8 +599,8 @@
                                (cond->
                                    (for [k required-attributes]
                                      ['?e k])
-                                 (:crux.schema/join attr)
-                                 (conj [(:crux.db/id object-value) (:crux.schema/join attr) '?e])))}]
+                                   (:crux.schema/join attr)
+                                   (conj [(:crux.db/id object-value) (:crux.schema/join attr) '?e])))}]
 
                   (println "DATALOG")
                   (pprint datalog)
