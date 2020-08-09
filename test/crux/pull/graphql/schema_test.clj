@@ -362,7 +362,7 @@
 
         (throw (ex-info "No operation type on operation" {:operation operation})))))
 
-    (defrecord DbSchema [db]
+  (defrecord DbSchema [db]
     Schema
 
     (resolve-type [this object-type field-name]
@@ -461,8 +461,9 @@
                 :crux.schema/derived
                 ^:crux.memoize '(fn [{:film/keys [box cost]}] (- box cost))
                 :crux.graphql/name "earnings"}
-               :film/vehicle
+               :film/vehicles
                {:crux.schema/type :ex.type/vehicle
+                :crux.schema/join :film/vehicles
                 :crux.schema/cardinality :crux.schema.cardinality/zero-or-more
                 :crux.graphql/name "vehicles"}
                :film/director
@@ -477,8 +478,7 @@
               {:person/name
                {:crux.schema/type String
                 :crux.schema/required? true
-                :crux.graphql/name "name"
-                }}}
+                :crux.graphql/name "name"}}}
 
              {:crux.db/id :ex.type/vehicle
               :crux.schema/type :crux.schema.type/relation
@@ -583,8 +583,16 @@
 
                       datalog
                       {:find ['?e]
-                       :where (vec (for [k required-attributes]
-                                     ['?e k]))}]
+                       :where (vec
+                               (cond->
+                                   (for [k required-attributes]
+                                     ['?e k])
+                                 (:crux.schema/join attr)
+                                 (conj [(:crux.db/id object-value) (:crux.schema/join attr) '?e])))}]
+
+                  (println "DATALOG")
+                  (pprint datalog)
+
                   (for [ref (map first (crux/q db datalog))]
                     (crux/entity db ref)))
 
