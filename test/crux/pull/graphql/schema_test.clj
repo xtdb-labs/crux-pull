@@ -160,6 +160,8 @@
     complete-value
     [{:keys [field-type fields result variable-values field-resolver schema]}]
 
+    (assert schema)
+
     (cond
       ;; 1. If the fieldType is a Non‐Null type:
       (= (get field-type "kind") "NON_NULL")
@@ -173,7 +175,8 @@
               :fields fields
               :result result
               :variable-values variable-values
-              :field-resolver field-resolver})]
+              :field-resolver field-resolver
+              :schema schema})]
         ;; c. If completedResult is null, throw a field error.
         (when (nil? completed-result)
           (throw (ex-info "Field error" {:field-type inner-type})))
@@ -235,6 +238,7 @@
       :crux.graphql.spec-ref/algorithm "ExecuteField"}
     execute-field
     [{:keys [object-type object-value field-type fields variable-values field-resolver schema]}]
+    (assert schema)
 
     ;; 1. Let field be the first entry in fields.
     (let [field (first fields)
@@ -272,6 +276,8 @@
     execute-selection-set-normally
     "Return a map with :data and :errors."
     [{:keys [selection-set object-type object-value variable-values field-resolver schema]}]
+
+    (assert schema)
 
     ;; 1. Let groupedFieldSet be the result of CollectFields
     (let [grouped-field-set
@@ -318,6 +324,7 @@
       :crux.graphql.spec-ref/algorithm "ExecuteQuery"}
     execute-query
     [{:keys [query schema variable-values initial-value field-resolver]}]
+    (assert schema)
 
     ;; 1. Let queryType be the root Query type in schema.
     (let [query-type-name (get schema "queryType")
@@ -395,15 +402,98 @@
       (cond
         (= field-name "__schema")
         {"kind" "OBJECT"
-         "name" "__schema"
-         "typeOf" nil}
+         "name" "__Schema"
+         "description" "A GraphQL Schema defines the capabilities of a GraphQL server. It exposes all available types and directives on the server, as well as the entry points for query, mutation, and subscription operations."
+         "fields" [{"name" "types"
+                    "description" "A list of all types supported by this server."
+                    "args" []
+                    "type" {"kind" "NON_NULL"
+                            "ofType" {"kind" "LIST"
+                                      "ofType" {"kind" "NON_NULL"
+                                                "ofType" {"kind" "OBJECT"
+                                                          "name" "__Type"}}}}
+                    "isDeprecated" false}
 
-        (= field-name "__type")
-        {"kind" "OBJECT"
-         "name" "__type"
-         "typeOf" nil}
+                   {"name" "queryType"
+                    "description" "The type that query operations will be rooted at."
+                    "args" []
+                    "type" {"kind" "NON_NULL"
+                            "name" nil
+                            "ofType" {"kind" "OBJECT"
+                                      "name" "__Type"}}
+                    "isDeprecated" false}
 
-        :else
+                   {"name" "mutationType"
+                    "description" "If this server supports mutation, the type that mutation operations will be rooted at."
+                    "args" []
+                    "type" {"kind" "OBJECT"
+                            "name" "__Type"}
+                    "isDeprecated" false}
+
+                   {"name" "subscriptionType"
+                    "description" "If this server support subscription, the type that subscription operations will be rooted at."
+                    "args" []
+                    "type" {"kind" "OBJECT"
+                            "name" "__Type"}
+                    "isDeprecated" false}
+
+                   {"name" "directives"
+                    "description" "A list of all directives supported by this server."
+                    "args" []
+                    "type" {"kind" "NON_NULL"
+                            "ofType" {"kind" "LIST"
+                                      "ofType" {"kind" "NON_NULL"
+                                                "ofType" {"kind" "OBJECT"
+                                                          "name" "__Directive"}}}}
+                    "isDeprecated" false}]}
+
+        (= (get object-type "name") "__Schema")
+        (if-let [type (some #(when (= (get % "name") field-name) (get % "type")) (get object-type "fields"))]
+          type
+          (throw
+           (ex-info
+            "Resolve schema type"
+            {:object-type object-type
+             :field-name field-name})))
+
+        (= (get object-type "name") "__Type")
+        (case field-name
+          "kind" {"kind" "ENUM"
+                  "enumValues" []}
+          "name" {"kind" "SCALAR"
+                  "name" "String"}
+          "description" {"kind" "SCALAR"
+                         "name" "String"}
+          "fields" {"kind" "LIST"
+                    "ofType" {"kind" "NON_NULL"
+                              "typeOf" {"kind" "OBJECT"
+                                        "name" "__Field"}}}
+          "interfaces" {"kind" "LIST"
+                        "ofType" {"kind" "NON_NULL"
+                                  "typeOf" {"kind" "OBJECT"
+                                            "name" "__Type"}}}
+          "possibleTypes" {"kind" "LIST"
+                           "ofType" {"kind" "NON_NULL"
+                                     "typeOf" {"kind" "OBJECT"
+                                               "name" "__Type"}}}
+
+          "enumValues" {"kind" "LIST"
+                        "ofType" {"kind" "NON_NULL"
+                                  "typeOf" {"kind" "OBJECT"
+                                            "name" "__EnumValue"}}}
+
+          "inputFields" {"kind" "LIST"
+                         "ofType" {"kind" "NON_NULL"
+                                   "typeOf" {"kind" "OBJECT"
+                                             "name" "__InputValue"}}}
+
+          "ofType" {"kind" "OBJECT"
+                    "name" "__Type"}
+
+          (throw (ex-info "No case" {:field-name field-name})))
+
+        ;; Crux backed
+        (:crux.schema/entity object-type)
         (let [result
               (let [attribute
                     (some
@@ -416,13 +506,11 @@
                 (cond
                   (= type-ref String)
                   {"kind" "SCALAR"
-                   "name" "String"
-                   "typeOf" nil}
+                   "name" "String"}
 
                   (= type-ref Integer)
                   {"kind" "SCALAR"
-                   "name" "Int"
-                   "typeOf" nil}
+                   "name" "Int"}
 
                   (keyword? type-ref)
                   (let [{:crux.graphql/keys [name]
@@ -458,12 +546,10 @@
                     (cond
                       (= cardinality :crux.schema.cardinality/many)
                       {"kind" "LIST"
-                       "name" nil
                        "ofType" object-type}
 
                       required?
                       {"kind" "NON_NULL"
-                       "name" name
                        "ofType" object-type}
 
                       :else object-type))
@@ -471,12 +557,19 @@
                   :else
                   (throw
                    (ex-info
-                    "TODO: resolve type"
+                    (format "TODO: resolve Crux-backed type: %s" field-name)
                     {:object-type object-type
                      :field-name field-name
                      :type-ref type-ref
                      :type-ref-type (type type-ref)}))))]
-          result))))
+          result)
+
+        :else
+        (throw
+         (ex-info
+          (format "TODO: resolve unknown type: %s" field-name)
+          {:object-type object-type
+           :field-name field-name})))))
 
   (defmethod print-method DbSchema [c w]
     (print-method (into {} (assoc c :schema "(schema)")) w))
@@ -643,23 +736,23 @@
           :operation-name "IntrospectionQuery"
           :variable-values {}
           :initial-value (crux/entity db :ex.type/graphql-query-root)
+
           :field-resolver
           (fn [{:keys [object-type field-name object-value argument-values] :as args}]
 
             (cond
               (= field-name "__schema")
               {"types" []
-               ;;"" {}
-               }
-              #_(throw (ex-info
-                      "Resolve schema"
-                      {:object-type object-type
-                       :field-name field-name
-                       :object-value object-value
-                       :argument-values argument-values
-                       }))
+               "queryType" {"kind" "OBJECT"
+                            "name" "Root"}
+               "mutationType" nil
+               "subscriptionType" nil
+               "directives" []}
 
-              :else
+              (= field-name "__type")
+              (throw (ex-info "TODO: __type" {}))
+
+              (:crux.schema/entity object-type)
               (let [[attr-k attr]
                     (some
                      #(when (= (get (second %) :crux.graphql/name) field-name) %)
@@ -712,13 +805,26 @@
                   :else
                   (throw
                    (ex-info
-                    "TODO: resolve field"
+                    "TODO: resolve entity field"
                     {:attr-k attr-k
                      :field-name field-name
                      :object-value object-value
                      :object-type object-type
                      :attr attr
-                     :field-type field-type}))))))})))))
+                     :field-type field-type}))))
+
+
+              :else
+              (if-let [[_ child] (find object-value field-name)]
+                child
+                (throw
+                 (ex-info
+                  "TODO: resolve field"
+                  {:field-name field-name
+                   :object-value object-value
+                   :object-type object-type
+                   })))
+              ))})))))
 
 ;; https://en.wikipedia.org/wiki/Functional_dependency
 ;; https://en.wikipedia.org/wiki/Armstrong%27s_axioms
