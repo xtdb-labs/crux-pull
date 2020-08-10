@@ -81,6 +81,10 @@
           argument-definitions [] ;; (get (lookup-field object-type field-name) "args")
           ]
 
+      #_(if (= field-name "film")
+          (println "HERE" (pr-str object-type))
+          )
+
       #_(reduce
          (fn [])
          argument-definitions)
@@ -366,11 +370,16 @@
     (resolve-type [this object-type field-name]
       (assert (:crux.schema/attributes object-type) "Not ours!")
       (let [result
-            (let [attribute (some
-                             #(when (= (get % :crux.graphql/name) field-name) %)
-                             (vals (:crux.schema/attributes object-type)))
-                  {:crux.schema/keys [cardinality required? description]
-                   type-ref :crux.schema/type} attribute]
+            (let [attribute
+                  (some
+                   #(when (= (get % :crux.graphql/name) field-name) %)
+                   (vals (:crux.schema/attributes object-type)))
+
+                  {:crux.schema/keys [cardinality required? description arguments]
+                   type-ref :crux.schema/type}
+                  attribute
+
+                  ]
               (cond
                 (= type-ref String)
                 {"kind" "SCALAR"
@@ -386,29 +395,26 @@
                 (let [{:crux.graphql/keys [name]
                        :crux.schema/keys [attributes]
                        t :crux.schema/type}
-                      (crux/entity db type-ref)]
+                      (crux/entity db type-ref)
+
+                      object-type
+                      {"kind" "OBJECT"
+                       "name" name
+                       :crux.schema/attributes attributes
+                       "ofType" nil}]
+
                   (cond
                     (= cardinality :crux.schema.cardinality/many)
                     {"kind" "LIST"
                      "name" nil
-                     "ofType" {"kind" "OBJECT"
-                               "name" name
-                               "ofType" nil
-                               :crux.schema/attributes attributes}}
+                     "ofType" object-type}
 
                     required?
                     {"kind" "NON_NULL"
                      "name" name
-                     "ofType" {"kind" "OBJECT"
-                               "name" name
-                               "ofType" nil
-                               :crux.schema/attributes attributes}}
+                     "ofType" object-type}
 
-                    :else
-                    {"kind" "OBJECT"
-                     "name" name
-                     "ofType" nil
-                     :crux.schema/attributes attributes}))
+                    :else object-type))
 
                 :else
                 (throw
@@ -444,6 +450,12 @@
                 :crux.schema/cardinality :crux.schema.cardinality/one
                 :crux.schema/required? true
                 :crux.graphql/name "filmName"}
+               :film/year
+               {:crux.schema/description "The film's year"
+                :crux.schema/type String
+                :crux.schema/cardinality :crux.schema.cardinality/one
+                :crux.schema/required? false
+                :crux.graphql/name "year"}
                :film/box
                {:crux.schema/type Integer
                 :crux.schema/description "How much the film made at the box office"
@@ -471,7 +483,7 @@
                :film/director
                {:crux.schema/type :ex.type/director
                 :crux.schema/cardinality :crux.schema.cardinality/one
-                :crux.schema/required? true
+                :crux.schema/required? false
                 :crux.graphql/name "director"}}}
 
              {:crux.db/id :ex.type/director
@@ -512,16 +524,26 @@
                {:crux.schema/description "A particular film in the James Bond universe."
                 ;; The type is the relation was are targetting.
                 :crux.schema/type :ex.type/film
-                :crux.schema/cardinality :crux.schema.cardinality/one
+                :crux.schema/cardinality :crux.schema.cardinality/many
 
-                ;; In GraphQL, fields have arguments, so makes sense for this
-                ;; field to restrict the relation:
+                ;; GraphQL fields are the analog of Crux attributes. Fields have
+                ;; arguments, so makes sense to declare them here, at the
+                ;; attribute value level.
                 :crux.schema/arguments
-                {:id {:crux.schema/join :crux.db/id}
-                 :name {:crux.schema/join :film/name
-                        :crux.schema/comparator :crux.schema.comparator/equals}
-                 :cost {:crux.schema/join :film/cost
-                        :crux.schema/comparator :crux.schema.comparator/more-than}}
+                {:id
+                 {:crux.schema/join :crux.db/id
+                  :crux.graphql/name "id"}
+
+                 :name
+                 {:crux.schema/join :film/name
+                  :crux.schema/comparator :crux.schema.comparator/equals
+                  :crux.graphql/name "id"}
+
+                 :cost-more-than
+                 {:crux.schema/join :film/cost
+                  :crux.schema/description "A comparison query on cost"
+                  :crux.schema/comparator :crux.schema.comparator/greater-than
+                  :crux.graphql/name "costsMore"}}
 
                 :crux.graphql/name "film"}}}]]
         [:crux.tx/put ent])))
@@ -553,15 +575,17 @@
 
       (let [document
             (->
-             "query GetFilms { allFilms { filmName box vehicles { brand model }}}"
+             #_"query GetFilms { allFilms { filmName box year vehicles { brand model }}}"
+             "query GetFilms { film(name:\"Octopussy\") { filmName year }}"
              #_introspection-query
              graphql/parse-graphql
              graphql/validate-graphql-document)
 
-            schema (map->DbSchema
-                    {"queryType" "Root"
-                     "directives" []
-                     :db db})]
+            schema
+            (map->DbSchema
+             {"queryType" "Root"
+              "directives" []
+              :db db})]
 
         ;; TODO: Introspection (Attempt to execute this query against the schema)
 
@@ -578,6 +602,9 @@
           :initial-value (crux/entity db :ex.type/graphql-query-root)
           :field-resolver
           (fn [{:keys [object-type field-name object-value argument-values] :as args}]
+            (when (= field-name "film")
+              (println "field-name" field-name)
+              (println "argument-values" argument-values))
             (let [[attr-k attr]
                   (some
                    #(when (= (get (second %) :crux.graphql/name) field-name) %)
@@ -609,6 +636,8 @@
                                      ['?e k])
                                    (:crux.schema/join attr)
                                    (conj [(:crux.db/id object-value) (:crux.schema/join attr) '?e])))}]
+                  (println "DATALOG")
+                  (pprint datalog)
 
                   (for [ref (map first (crux/q db datalog))]
                     (crux/entity db ref)))
