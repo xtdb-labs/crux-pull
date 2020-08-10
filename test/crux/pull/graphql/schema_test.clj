@@ -302,8 +302,6 @@
                                :crux.schema/type :ex.type/graphql-query-root}}}
                       query-type-name)]
 
-      #_(println "query-type" (pr-str query-type))
-
       ;; 2. Assert: queryType is an Object type.
       (when-not (= (get query-type "kind") "OBJECT")
         (throw (ex-info
@@ -389,9 +387,6 @@
                        :crux.schema/keys [attributes]
                        t :crux.schema/type}
                       (crux/entity db type-ref)]
-                  ;;(println "description" (pr-str description))
-                  ;;(println "cardinality" (pr-str cardinality))
-                  ;;(println "required?" (pr-str required?))
                   (cond
                     (= cardinality :crux.schema.cardinality/many)
                     {"kind" "LIST"
@@ -515,8 +510,19 @@
                 :crux.graphql/name "allFilms"}
                :film
                {:crux.schema/description "A particular film in the James Bond universe."
+                ;; The type is the relation was are targetting.
                 :crux.schema/type :ex.type/film
                 :crux.schema/cardinality :crux.schema.cardinality/one
+
+                ;; In GraphQL, fields have arguments, so makes sense for this
+                ;; field to restrict the relation:
+                :crux.schema/arguments
+                {:id {:crux.schema/join :crux.db/id}
+                 :name {:crux.schema/join :film/name
+                        :crux.schema/comparator :crux.schema.comparator/equals}
+                 :cost {:crux.schema/join :film/cost
+                        :crux.schema/comparator :crux.schema.comparator/more-than}}
+
                 :crux.graphql/name "film"}}}]]
         [:crux.tx/put ent])))
 
@@ -524,7 +530,10 @@
      node
      (crux/submit-tx
       node
-      (for [record (edn/read-string (slurp (io/resource "james-bond.edn")))]
+      (for [record
+            (edn/read-string
+             (slurp
+              (io/resource "james-bond.edn")))]
         [:crux.tx/put record])))
 
     (let [db (crux/db node)
@@ -569,7 +578,6 @@
           :initial-value (crux/entity db :ex.type/graphql-query-root)
           :field-resolver
           (fn [{:keys [object-type field-name object-value argument-values] :as args}]
-            (println "resolving field" field-name "against object-value of" object-value)
             (let [[attr-k attr]
                   (some
                    #(when (= (get (second %) :crux.graphql/name) field-name) %)
@@ -601,9 +609,6 @@
                                      ['?e k])
                                    (:crux.schema/join attr)
                                    (conj [(:crux.db/id object-value) (:crux.schema/join attr) '?e])))}]
-
-                  (println "DATALOG")
-                  (pprint datalog)
 
                   (for [ref (map first (crux/q db datalog))]
                     (crux/entity db ref)))
