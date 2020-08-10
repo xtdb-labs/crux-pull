@@ -379,9 +379,7 @@
 
                   {:crux.schema/keys [cardinality required? description]
                    type-ref :crux.schema/type}
-                  attribute
-
-                  ]
+                  attribute]
               (cond
                 (= type-ref String)
                 {"kind" "SCALAR"
