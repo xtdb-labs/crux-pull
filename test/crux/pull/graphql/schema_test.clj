@@ -16,22 +16,6 @@
   (defprotocol Schema
     (resolve-type [_ object-type field-name]))
 
-  (defn validate-schema [schema]
-
-    (when-not (get schema "queryType")
-      (throw
-       (ex-info
-        "Schema validation error: queryType is required"
-        {:schema schema})))
-
-    (when-not (get schema "directives")
-      (throw
-       (ex-info
-        "Schema validation error: directives is required"
-        {:schema schema})))
-
-    schema)
-
   (defn
     ^{:crux.graphql.spec-ref/version "June2018"
       :crux.graphql.spec-ref/section "6.3.2"
@@ -407,80 +391,92 @@
     Schema
 
     (resolve-type [this object-type field-name]
-      (assert (:crux.schema/entity object-type) (format "Not ours! %s" (pr-str object-type)))
-      (let [result
-            (let [attribute
-                  (some
-                   #(when (= (get % :crux.graphql/name) field-name) %)
-                   (vals (get-in object-type [:crux.schema/entity :crux.schema/attributes])))
 
-                  {:crux.schema/keys [cardinality required? description]
-                   type-ref :crux.schema/type}
-                  attribute]
-              (cond
-                (= type-ref String)
-                {"kind" "SCALAR"
-                 "name" "String"
-                 "typeOf" nil}
+      (cond
+        (= field-name "__schema")
+        {"kind" "OBJECT"
+         "name" "__schema"
+         "typeOf" nil}
 
-                (= type-ref Integer)
-                {"kind" "SCALAR"
-                 "name" "Int"
-                 "typeOf" nil}
+        (= field-name "__type")
+        {"kind" "OBJECT"
+         "name" "__type"
+         "typeOf" nil}
 
-                (keyword? type-ref)
-                (let [{:crux.graphql/keys [name]
-                       :crux.schema/keys [attributes]
-                       t :crux.schema/type
-                       :as e}
-                      (crux/entity db type-ref)
+        :else
+        (let [result
+              (let [attribute
+                    (some
+                     #(when (= (get % :crux.graphql/name) field-name) %)
+                     (vals (get-in object-type [:crux.schema/entity :crux.schema/attributes])))
 
-                      object-type
-                      {"kind" "OBJECT"
+                    {:crux.schema/keys [cardinality required? description]
+                     type-ref :crux.schema/type}
+                    attribute]
+                (cond
+                  (= type-ref String)
+                  {"kind" "SCALAR"
+                   "name" "String"
+                   "typeOf" nil}
+
+                  (= type-ref Integer)
+                  {"kind" "SCALAR"
+                   "name" "Int"
+                   "typeOf" nil}
+
+                  (keyword? type-ref)
+                  (let [{:crux.graphql/keys [name]
+                         :crux.schema/keys [attributes]
+                         t :crux.schema/type
+                         :as e}
+                        (crux/entity db type-ref)
+
+                        object-type
+                        {"kind" "OBJECT"
+                         "name" name
+                         "fields"
+                         (mapv
+                          (fn [[attr-n {:crux.schema/keys [description arguments]
+                                        :crux.graphql/keys [name]}]]
+                            (cond-> {"name" name}
+                              description (conj ["description" description])
+                              arguments
+                              (conj ["args"
+                                     (mapv
+                                      (fn [[arg-k {n :crux.graphql/name
+                                                   desc :crux.schema/description :as arg}]]
+                                        (assert n (format "InputValue must have a name: %s" (pr-str arg)))
+                                        (cond->
+                                            {"name" n}
+                                            desc (conj ["description" desc])
+                                            true (conj ["type" {"kind" "SCALAR"
+                                                                "name" "String"
+                                                                "typeOf" nil}]))) arguments)]))) attributes)
+                         "ofType" nil
+                         :crux.schema/entity e}]
+
+                    (cond
+                      (= cardinality :crux.schema.cardinality/many)
+                      {"kind" "LIST"
+                       "name" nil
+                       "ofType" object-type}
+
+                      required?
+                      {"kind" "NON_NULL"
                        "name" name
-                       "fields"
-                       (mapv
-                        (fn [[attr-n {:crux.schema/keys [description arguments]
-                                      :crux.graphql/keys [name]}]]
-                          (cond-> {"name" name}
-                            description (conj ["description" description])
-                            arguments
-                            (conj ["args"
-                                   (mapv
-                                    (fn [[arg-k {n :crux.graphql/name
-                                                 desc :crux.schema/description :as arg}]]
-                                      (assert n (format "InputValue must have a name: %s" (pr-str arg)))
-                                      (cond->
-                                          {"name" n}
-                                          desc (conj ["description" desc])
-                                          true (conj ["type" {"kind" "SCALAR"
-                                                              "name" "String"
-                                                              "typeOf" nil}]))) arguments)]))) attributes)
-                       "ofType" nil
-                       :crux.schema/entity e}]
+                       "ofType" object-type}
 
-                  (cond
-                    (= cardinality :crux.schema.cardinality/many)
-                    {"kind" "LIST"
-                     "name" nil
-                     "ofType" object-type}
+                      :else object-type))
 
-                    required?
-                    {"kind" "NON_NULL"
-                     "name" name
-                     "ofType" object-type}
-
-                    :else object-type))
-
-                :else
-                (throw
-                 (ex-info
-                  "TODO: resolve type"
-                  {:object-type object-type
-                   :field-name field-name
-                   :type-ref type-ref
-                   :type-ref-type (type type-ref)}))))]
-        result)))
+                  :else
+                  (throw
+                   (ex-info
+                    "TODO: resolve type"
+                    {:object-type object-type
+                     :field-name field-name
+                     :type-ref type-ref
+                     :type-ref-type (type type-ref)}))))]
+          result))))
 
   (defmethod print-method DbSchema [c w]
     (print-method (into {} (assoc c :schema "(schema)")) w))
@@ -619,18 +615,7 @@
               (io/resource "james-bond.edn")))]
         [:crux.tx/put record])))
 
-    (let [db (crux/db node)
-          schema
-          (-> {"queryType" "Root"
-               "directives" []}
-              validate-schema)]
-
-      ;; Extract GraphQL types to file, just to compare
-      (spit "/tmp/schema.json"
-            (json/generate-string
-             {:data
-              {"__schema" schema}}
-             {:pretty true}))
+    (let [db (crux/db node)]
 
       ;; Query the schema with GraphQL execution
 
@@ -638,18 +623,13 @@
             (->
              #_"query { allFilms { filmName box year vehicles { brand model }}}"
              #_"query { film(name:\"For Your Eyes Only\") { filmName year }}"
+             #_"query { film(madeIn:\"1963\") { filmName }}"
+             introspection-query
 
-             "query { film(madeIn:\"1963\") { filmName }}"
-
-             #_introspection-query
              graphql/parse-graphql
              graphql/validate-graphql-document)
 
-            schema
-            (map->DbSchema
-             {"queryType" "Root"
-              "directives" []
-              :db db})]
+            ]
 
         ;; TODO: Introspection (Attempt to execute this query against the schema)
 
@@ -658,74 +638,87 @@
         (execute-request
          {:schema (map->DbSchema
                    {"queryType" "Root"
-                    "directives" []
                     :db db})
           :document document
-          ;;:operation-name "GetFilms" #_"IntrospectionQuery"
+          :operation-name "IntrospectionQuery"
           :variable-values {}
           :initial-value (crux/entity db :ex.type/graphql-query-root)
           :field-resolver
           (fn [{:keys [object-type field-name object-value argument-values] :as args}]
 
-            (let [[attr-k attr]
-                  (some
-                   #(when (= (get (second %) :crux.graphql/name) field-name) %)
-                   (get-in object-type [:crux.schema/entity :crux.schema/attributes]))
+            (cond
+              (= field-name "__schema")
+              {"types" []
+               ;;"" {}
+               }
+              #_(throw (ex-info
+                      "Resolve schema"
+                      {:object-type object-type
+                       :field-name field-name
+                       :object-value object-value
+                       :argument-values argument-values
+                       }))
 
-                  field-type (:crux.schema/type attr)]
+              :else
+              (let [[attr-k attr]
+                    (some
+                     #(when (= (get (second %) :crux.graphql/name) field-name) %)
+                     (get-in object-type [:crux.schema/entity :crux.schema/attributes]))
 
-              ;; For each arg in :crux.schema/arguments, go through with argument-values
+                    field-type (:crux.schema/type attr)]
 
-              (cond
+                ;; For each arg in :crux.schema/arguments, go through with argument-values
 
-                ;; A :crux.schema/type of a keyword, absolutely implies this is
-                ;; a reference to another relation. The cardinality is implied
-                ;; to be :crux.schema.cardinality/zero-or-more, but we should
-                ;; think about whether cardinality needs to be explicit in this
-                ;; case, and what other cardinalities would mean.
-                (keyword? field-type)
-                ;; Check type is list first?
-                (let [relation (crux/entity db field-type)
+                (cond
 
-                      relation-required-attributes
-                      (for [[k v] (:crux.schema/attributes relation)
-                            :when (:crux.schema/required? v)]
-                        k)
+                  ;; A :crux.schema/type of a keyword, absolutely implies this is
+                  ;; a reference to another relation. The cardinality is implied
+                  ;; to be :crux.schema.cardinality/zero-or-more, but we should
+                  ;; think about whether cardinality needs to be explicit in this
+                  ;; case, and what other cardinalities would mean.
+                  (keyword? field-type)
+                  ;; Check type is list first?
+                  (let [relation (crux/entity db field-type)
 
-                      datalog
-                      {:find ['?e]
-                       :where (vec
-                               (cond->
-                                   (for [k relation-required-attributes]
-                                     ['?e k])
+                        relation-required-attributes
+                        (for [[k v] (:crux.schema/attributes relation)
+                              :when (:crux.schema/required? v)]
+                          k)
 
-                                   (:crux.schema/join attr)
-                                   (conj [(:crux.db/id object-value) (:crux.schema/join attr) '?e])
+                        datalog
+                        {:find ['?e]
+                         :where (vec
+                                 (cond->
+                                     (for [k relation-required-attributes]
+                                       ['?e k])
 
-                                   (:crux.schema/arguments attr)
-                                   (concat
-                                    (keep (fn [[arg-k arg-v]]
-                                            (when-let [[_ v] (find argument-values (:crux.graphql/name arg-v))]
-                                              ['?e (:crux.schema/join arg-v) v]))
-                                          (:crux.schema/arguments attr)))))}]
+                                     (:crux.schema/join attr)
+                                     (conj [(:crux.db/id object-value) (:crux.schema/join attr) '?e])
 
-                  (for [ref (map first (crux/q db datalog))]
-                    (crux/entity db ref)))
+                                     (:crux.schema/arguments attr)
+                                     (concat
+                                      (keep (fn [[arg-k arg-v]]
+                                              (when-let [[_ v] (find argument-values (:crux.graphql/name arg-v))]
+                                                ['?e (:crux.schema/join arg-v) v]))
+                                            (:crux.schema/arguments attr)))))}]
 
-                (#{String Integer} field-type)
-                ;; What if the :crux.schema/type of the field is different?
-                (get object-value attr-k)
+                    (for [ref (map first (crux/q db datalog))]
+                      (crux/entity db ref)))
 
-                :else
-                (throw
-                 (ex-info
-                  "TODO: resolve field"
-                  {:attr-k attr-k
-                   :field-name field-name
-                   :object-value object-value
-                   :object-type object-type
-                   :attr attr
-                   :field-type field-type})))))})))))
+                  (#{String Integer} field-type)
+                  ;; What if the :crux.schema/type of the field is different?
+                  (get object-value attr-k)
+
+                  :else
+                  (throw
+                   (ex-info
+                    "TODO: resolve field"
+                    {:attr-k attr-k
+                     :field-name field-name
+                     :object-value object-value
+                     :object-type object-type
+                     :attr attr
+                     :field-type field-type}))))))})))))
 
 ;; https://en.wikipedia.org/wiki/Functional_dependency
 ;; https://en.wikipedia.org/wiki/Armstrong%27s_axioms
