@@ -13,7 +13,6 @@
    [flatland.ordered.map :refer [ordered-map]]))
 
 (do
-
   (defprotocol Schema
     (resolve-type [_ object-type field-name]))
 
@@ -74,6 +73,8 @@
           coerced-values {}
           ;; 2. Let argumentValues be the argument values provided in field.
           argument-values (:arguments field)
+          _ (when (not-empty argument-values)
+              (println "argument values" argument-values))
           ;; 3. Let fieldName be the name of field.
           field-name (:name field)
           ;; 4. Let argumentDefinitions be the arguments defined by objectType
@@ -81,9 +82,10 @@
           argument-definitions [] ;; (get (lookup-field object-type field-name) "args")
           ]
 
-      #_(if (= field-name "film")
-          (println "HERE" (pr-str object-type))
-          )
+      (when (= field-name "film")
+        (printf "CoerceArgumentValues: field is %s, object-type is:\n" (pr-str field))
+        (pprint object-type)
+        )
 
       #_(reduce
          (fn [])
@@ -267,8 +269,7 @@
          ;; This value is unaffected if an alias is used.
          (let [field-name (:name (first fields))
                ;; b. Let fieldType be the return type defined for the field fieldName of objectType.
-               field-type (resolve-type schema object-type field-name)
-               ]
+               field-type (resolve-type schema object-type field-name)]
 
            ;; c. If fieldType is defined:
            (if field-type
@@ -375,7 +376,7 @@
                    #(when (= (get % :crux.graphql/name) field-name) %)
                    (vals (:crux.schema/attributes object-type)))
 
-                  {:crux.schema/keys [cardinality required? description arguments]
+                  {:crux.schema/keys [cardinality required? description]
                    type-ref :crux.schema/type}
                   attribute
 
@@ -398,10 +399,31 @@
                       (crux/entity db type-ref)
 
                       object-type
-                      {"kind" "OBJECT"
-                       "name" name
-                       :crux.schema/attributes attributes
-                       "ofType" nil}]
+                      (do
+                        (println "name> " name)
+                        (println "atts> " (pr-str attributes))
+                        {"kind" "OBJECT"
+                         "name" name
+                         "fields"
+                         (mapv
+                          (fn [[attr-n {:crux.schema/keys [description arguments]
+                                        :crux.graphql/keys [name]}]]
+                            (cond-> {"name" name}
+                              description (conj ["description" description])
+                              arguments
+                              (conj ["args"
+                                     (mapv
+                                      (fn [[arg-k {n :crux.graphql/name
+                                                  desc :crux.schema/description :as arg}]]
+                                        (assert n (format "InputValue must have a name: %s" (pr-str arg)))
+                                        (cond->
+                                            {"name" n}
+                                            desc (conj ["description" desc])
+                                            true (conj ["type" {"kind" "SCALAR"
+                                                                "name" "String"
+                                                                "typeOf" nil}]))) arguments)]))) attributes)
+                         "ofType" nil
+                         :crux.schema/attributes attributes})]
 
                   (cond
                     (= cardinality :crux.schema.cardinality/many)
@@ -537,7 +559,7 @@
                  :name
                  {:crux.schema/join :film/name
                   :crux.schema/comparator :crux.schema.comparator/equals
-                  :crux.graphql/name "id"}
+                  :crux.graphql/name "name"}
 
                  :cost-more-than
                  {:crux.schema/join :film/cost
@@ -655,8 +677,9 @@
                    :object-value object-value
                    :object-type object-type
                    :attr attr
-                   :field-type field-type})))))})))))
+                   :field-type field-type})))))}))))
 
+  )
 ;; https://en.wikipedia.org/wiki/Functional_dependency
 ;; https://en.wikipedia.org/wiki/Armstrong%27s_axioms
 ;; https://en.wikipedia.org/wiki/The_Third_Manifesto
