@@ -73,26 +73,16 @@
           coerced-values {}
           ;; 2. Let argumentValues be the argument values provided in field.
           argument-values (:arguments field)
-          _ (when (not-empty argument-values)
-              (println "argument values" argument-values))
           ;; 3. Let fieldName be the name of field.
           field-name (:name field)
           ;; 4. Let argumentDefinitions be the arguments defined by objectType
           ;; for the field named fieldName.
-          argument-definitions (some #(when (= (get % "name") field-name) (get % "args")) (get object-type "fields"))
+          argument-definitions (some #(when (= (get % "name") field-name) (get % "args")) (get object-type "fields"))]
 
-          _ (println "argument definitions" (pr-str argument-definitions))
-          ;; 5. For each argumentDefinition in argumentDefinitions:
-          ]
-
-      (when (= field-name "film")
-        (printf "CoerceArgumentValues: field is %s, object-type is:\n" (pr-str field))
-        (pprint object-type))
-
+      ;; 5. For each argumentDefinition in argumentDefinitions:
       (reduce
        (fn [acc argument-definition]
 
-         (println "Considering argument-definition" argument-definition "acc is" acc)
          (let [ ;; a. Let argumentName be the name of argumentDefinition.
                argument-name (get argument-definition "name")
                ;; b. Let argumentType be the expected type of argumentDefinition.
@@ -106,9 +96,8 @@
                argument-value (second has-value)
                ;; f. If argumentValue is a Variable: (TODO)
                ;; g. Otherwise, let value be argumentValue.
-               value argument-value
-               ]
-           (println "has-value" has-value)
+               value argument-value]
+
            (cond
              ;; h. If hasValue is not true and defaultValue exists (including null):
              (and (not has-value) default-value)
@@ -136,7 +125,6 @@
                :else
                ;; TODO: apply coercion rules, for now just set it to the value
                (let [coerced-value value]
-                 (println "Conjing! " (pr-str [argument-name value]))
                  (conj acc [argument-name value])))
 
              :else acc)))
@@ -274,9 +262,6 @@
            {:object-type object-type
             :field field
             :variable-values variable-values})
-
-          _ (when (= field-name "film")
-              (println "coerced-argument-values:" (pr-str argument-values)))
 
           ;; 4. Let resolvedValue be ResolveFieldValue(…).
           resolved-value
@@ -610,6 +595,11 @@
                   :crux.schema/comparator :crux.schema.comparator/equals
                   :crux.graphql/name "name"}
 
+                 :year
+                 {:crux.schema/join :film/year
+                  :crux.schema/comparator :crux.schema.comparator/equals
+                  :crux.graphql/name "madeIn"}
+
                  :cost-more-than
                  {:crux.schema/join :film/cost
                   :crux.schema/description "A comparison query on cost"
@@ -646,8 +636,11 @@
 
       (let [document
             (->
-             #_"query GetFilms { allFilms { filmName box year vehicles { brand model }}}"
-             "query GetFilms { film(name:\"Octopussy\") { filmName year }}"
+             #_"query { allFilms { filmName box year vehicles { brand model }}}"
+             #_"query { film(name:\"For Your Eyes Only\") { filmName year }}"
+
+             "query { film(madeIn:\"1963\") { filmName }}"
+
              #_introspection-query
              graphql/parse-graphql
              graphql/validate-graphql-document)
@@ -668,13 +661,11 @@
                     "directives" []
                     :db db})
           :document document
-          :operation-name "GetFilms" #_"IntrospectionQuery"
+          ;;:operation-name "GetFilms" #_"IntrospectionQuery"
           :variable-values {}
           :initial-value (crux/entity db :ex.type/graphql-query-root)
           :field-resolver
           (fn [{:keys [object-type field-name object-value argument-values] :as args}]
-            (println "field-name" field-name)
-            (println "field-resolver: argument-values" (pr-str argument-values))
 
             (let [[attr-k attr]
                   (some
@@ -683,7 +674,7 @@
 
                   field-type (:crux.schema/type attr)]
 
-              (println "Attr is" (pr-str attr))
+              ;; For each arg in :crux.schema/arguments, go through with argument-values
 
               (cond
 
@@ -696,7 +687,7 @@
                 ;; Check type is list first?
                 (let [relation (crux/entity db field-type)
 
-                      required-attributes
+                      relation-required-attributes
                       (for [[k v] (:crux.schema/attributes relation)
                             :when (:crux.schema/required? v)]
                         k)
@@ -705,12 +696,18 @@
                       {:find ['?e]
                        :where (vec
                                (cond->
-                                   (for [k required-attributes]
+                                   (for [k relation-required-attributes]
                                      ['?e k])
+
                                    (:crux.schema/join attr)
-                                   (conj [(:crux.db/id object-value) (:crux.schema/join attr) '?e])))}]
-                  (println "DATALOG")
-                  (pprint datalog)
+                                   (conj [(:crux.db/id object-value) (:crux.schema/join attr) '?e])
+
+                                   (:crux.schema/arguments attr)
+                                   (concat
+                                    (keep (fn [[arg-k arg-v]]
+                                            (when-let [[_ v] (find argument-values (:crux.graphql/name arg-v))]
+                                              ['?e (:crux.schema/join arg-v) v]))
+                                          (:crux.schema/arguments attr)))))}]
 
                   (for [ref (map first (crux/q db datalog))]
                     (crux/entity db ref)))
@@ -728,9 +725,8 @@
                    :object-value object-value
                    :object-type object-type
                    :attr attr
-                   :field-type field-type})))))}))))
+                   :field-type field-type})))))})))))
 
-  )
 ;; https://en.wikipedia.org/wiki/Functional_dependency
 ;; https://en.wikipedia.org/wiki/Armstrong%27s_axioms
 ;; https://en.wikipedia.org/wiki/The_Third_Manifesto
