@@ -302,9 +302,10 @@
     (let [query-type-name (get schema "queryType")
           query-type (resolve-type
                       schema
-                      {:crux.schema/attributes
-                       {:root {:crux.graphql/name "Root"
-                               :crux.schema/type :ex.type/graphql-query-root}}}
+                      {:crux.schema/entity
+                       {:crux.schema/attributes
+                        {:root {:crux.graphql/name "Root"
+                                :crux.schema/type :ex.type/graphql-query-root}}}}
                       query-type-name)]
 
       ;; 2. Assert: queryType is an Object type.
@@ -369,12 +370,12 @@
     Schema
 
     (resolve-type [this object-type field-name]
-      (assert (:crux.schema/attributes object-type) "Not ours!")
+      (assert (:crux.schema/entity object-type) (format "Not ours! %s" (pr-str object-type)))
       (let [result
             (let [attribute
                   (some
                    #(when (= (get % :crux.graphql/name) field-name) %)
-                   (vals (:crux.schema/attributes object-type)))
+                   (vals (get-in object-type [:crux.schema/entity :crux.schema/attributes])))
 
                   {:crux.schema/keys [cardinality required? description]
                    type-ref :crux.schema/type}
@@ -395,7 +396,8 @@
                 (keyword? type-ref)
                 (let [{:crux.graphql/keys [name]
                        :crux.schema/keys [attributes]
-                       t :crux.schema/type}
+                       t :crux.schema/type
+                       :as e}
                       (crux/entity db type-ref)
 
                       object-type
@@ -423,7 +425,7 @@
                                                                 "name" "String"
                                                                 "typeOf" nil}]))) arguments)]))) attributes)
                          "ofType" nil
-                         :crux.schema/attributes attributes})]
+                         :crux.schema/entity e})]
 
                   (cond
                     (= cardinality :crux.schema.cardinality/many)
@@ -630,7 +632,7 @@
             (let [[attr-k attr]
                   (some
                    #(when (= (get (second %) :crux.graphql/name) field-name) %)
-                   (:crux.schema/attributes object-type))
+                   (get-in object-type [:crux.schema/entity :crux.schema/attributes]))
 
                   field-type (:crux.schema/type attr)]
 
