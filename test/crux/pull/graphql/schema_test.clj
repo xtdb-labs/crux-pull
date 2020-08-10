@@ -79,21 +79,70 @@
           field-name (:name field)
           ;; 4. Let argumentDefinitions be the arguments defined by objectType
           ;; for the field named fieldName.
-          argument-definitions [] ;; (get (lookup-field object-type field-name) "args")
+          argument-definitions (some #(when (= (get % "name") field-name) (get % "args")) (get object-type "fields"))
+
+          _ (println "argument definitions" (pr-str argument-definitions))
+          ;; 5. For each argumentDefinition in argumentDefinitions:
           ]
 
       (when (= field-name "film")
         (printf "CoerceArgumentValues: field is %s, object-type is:\n" (pr-str field))
-        (pprint object-type)
-        )
+        (pprint object-type))
 
-      #_(reduce
-         (fn [])
-         argument-definitions)
+      (reduce
+       (fn [acc argument-definition]
 
-      #_(throw (ex-info "TODO" {:field field
-                                :object-type object-type}))
-      {}))
+         (println "Considering argument-definition" argument-definition "acc is" acc)
+         (let [ ;; a. Let argumentName be the name of argumentDefinition.
+               argument-name (get argument-definition "name")
+               ;; b. Let argumentType be the expected type of argumentDefinition.
+               argument-type (get argument-definition "type")
+               ;; c. Let defaultValue be the default value for argumentDefinition.
+               default-value (find argument-definition "defaultValue")
+               ;; d. Let hasValue be true if argumentValues provides
+               ;; a value for the name argumentName.
+               has-value (find argument-values argument-name)
+               ;; e. Let argumentValue be the value provided in argumentValues for the name argumentName.
+               argument-value (second has-value)
+               ;; f. If argumentValue is a Variable: (TODO)
+               ;; g. Otherwise, let value be argumentValue.
+               value argument-value
+               ]
+           (println "has-value" has-value)
+           (cond
+             ;; h. If hasValue is not true and defaultValue exists (including null):
+             (and (not has-value) default-value)
+             ;;   i. Add an entry to coercedValues named argumentName
+             ;;   with the value defaultValue.
+             (conj acc [argument-name (second default-value)])
+
+             ;; i. Otherwise if argumentType is a Non‐Nullable type,
+             ;; and either hasValue is not true or value is null,
+             ;; throw a field error.
+             (and (= (get argument-type "kind") "NON_NULL")
+                  (or (not has-value)
+                      (nil? (second has-value))))
+             (throw (ex-info "Field error" {}))
+
+             ;; j. Otherwise if hasValue is true:
+             has-value
+             (cond
+               ;; i. If value is null:
+               (nil? (second has-value))
+               ;; 1. Add an entry to coercedValues named argumentName with the value null.
+               (conj acc [argument-name nil])
+               ;; ii. Otherwise, if argumentValue is a Variable: (TODO)
+
+               :else
+               ;; TODO: apply coercion rules, for now just set it to the value
+               (let [coerced-value value]
+                 (println "Conjing! " (pr-str [argument-name value]))
+                 (conj acc [argument-name value])))
+
+             :else acc)))
+
+       coerced-values
+       argument-definitions)))
 
   (defn
     ^{:crux.graphql.spec-ref/version "June2018"
@@ -225,6 +274,9 @@
            {:object-type object-type
             :field field
             :variable-values variable-values})
+
+          _ (when (= field-name "film")
+              (println "coerced-argument-values:" (pr-str argument-values)))
 
           ;; 4. Let resolvedValue be ResolveFieldValue(…).
           resolved-value
@@ -399,31 +451,28 @@
                       (crux/entity db type-ref)
 
                       object-type
-                      (do
-                        (println "name> " name)
-                        (println "atts> " (pr-str attributes))
-                        {"kind" "OBJECT"
-                         "name" name
-                         "fields"
-                         (mapv
-                          (fn [[attr-n {:crux.schema/keys [description arguments]
-                                        :crux.graphql/keys [name]}]]
-                            (cond-> {"name" name}
-                              description (conj ["description" description])
-                              arguments
-                              (conj ["args"
-                                     (mapv
-                                      (fn [[arg-k {n :crux.graphql/name
-                                                  desc :crux.schema/description :as arg}]]
-                                        (assert n (format "InputValue must have a name: %s" (pr-str arg)))
-                                        (cond->
-                                            {"name" n}
-                                            desc (conj ["description" desc])
-                                            true (conj ["type" {"kind" "SCALAR"
-                                                                "name" "String"
-                                                                "typeOf" nil}]))) arguments)]))) attributes)
-                         "ofType" nil
-                         :crux.schema/entity e})]
+                      {"kind" "OBJECT"
+                       "name" name
+                       "fields"
+                       (mapv
+                        (fn [[attr-n {:crux.schema/keys [description arguments]
+                                      :crux.graphql/keys [name]}]]
+                          (cond-> {"name" name}
+                            description (conj ["description" description])
+                            arguments
+                            (conj ["args"
+                                   (mapv
+                                    (fn [[arg-k {n :crux.graphql/name
+                                                 desc :crux.schema/description :as arg}]]
+                                      (assert n (format "InputValue must have a name: %s" (pr-str arg)))
+                                      (cond->
+                                          {"name" n}
+                                          desc (conj ["description" desc])
+                                          true (conj ["type" {"kind" "SCALAR"
+                                                              "name" "String"
+                                                              "typeOf" nil}]))) arguments)]))) attributes)
+                       "ofType" nil
+                       :crux.schema/entity e}]
 
                   (cond
                     (= cardinality :crux.schema.cardinality/many)
@@ -624,15 +673,17 @@
           :initial-value (crux/entity db :ex.type/graphql-query-root)
           :field-resolver
           (fn [{:keys [object-type field-name object-value argument-values] :as args}]
-            (when (= field-name "film")
-              (println "field-name" field-name)
-              (println "argument-values" argument-values))
+            (println "field-name" field-name)
+            (println "field-resolver: argument-values" (pr-str argument-values))
+
             (let [[attr-k attr]
                   (some
                    #(when (= (get (second %) :crux.graphql/name) field-name) %)
                    (get-in object-type [:crux.schema/entity :crux.schema/attributes]))
 
                   field-type (:crux.schema/type attr)]
+
+              (println "Attr is" (pr-str attr))
 
               (cond
 
