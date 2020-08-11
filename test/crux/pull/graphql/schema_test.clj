@@ -10,7 +10,8 @@
    [crux.api :as crux]
    [crux.pull.alpha.graphql :as graphql]
    [crux.pull.eql-graphql-test :refer [introspection-query]]
-   [flatland.ordered.map :refer [ordered-map]]))
+   [flatland.ordered.map :refer [ordered-map]]
+   [clojure.set :as set]))
 
 (do
   (defprotocol Schema
@@ -27,22 +28,38 @@
       :or {visited-fragments {}}}]
 
     (reduce
-     (fn [grouped-fields [selection-type m]]
+     (fn [grouped-fields [selection-type selection]]
        (case selection-type
+         ;; c. If selection is a Field:
          :field
-
          (let [response-key
+               ;; i. Let responseKey be the response key of selection (the alias
+               ;; if defined, otherwise the field name).
+
                ;; TODO: The response-key will be the alias, if it exists
-               (:name m)]
-           (update grouped-fields response-key (fnil conj []) m))
+               (:name selection)]
+           (update
+            grouped-fields
+            ;; ii. Let groupForResponseKey be the list in groupedFields for responseKey;
+            response-key
+
+            ;; Append selection to the groupForResponseKey.
+            (-> conj
+                ;; ii (cont). …if no such list exists, create it as an empty
+                ;; list.
+                (fnil []))
+            selection))
 
          :fragment-spread
-         (throw (ex-info "TODO: fragment-spread" {}))
+         ;; d. If selection is a FragmentSpread:
+         (throw (ex-info "TODO: fragment-spread" {:selection selection}))
 
          :inline-fragment
-         (throw (ex-info "TODO: inline-fragment" {}))))
+         (throw (ex-info "TODO: inline-fragment" {:selection selection}))))
 
-     (ordered-map)                      ; grouped-fields
+     ;; 2. Initialize groupedFields to an empty ordered map of lists.
+     (ordered-map)
+     ;; 3. For each selection in selectionSet:
      selection-set))
 
   (defn
@@ -342,6 +359,7 @@
                 "Query type must be an OBJECT"
                 (into
                  {:query-type query-type
+                  :query-type-name query-type-name
                   :crux.graphql.spec-ref/step 2}
                  (meta #'execute-query)))))
 
@@ -394,11 +412,46 @@
 
         (throw (ex-info "No operation type on operation" {:operation operation})))))
 
+  (defn to-graphql-type [e]
+    (cond
+      (= e String)
+      {"kind" "SCALAR"
+       "name" "String"}
+      (= e Integer)
+      {"kind" "SCALAR"
+       "name" "Int"}
+      (map? e)
+      (let [{:crux.graphql/keys [name]
+             :crux.schema/keys [attributes]
+             t :crux.schema/type
+             } e]
+        {"kind" "OBJECT"
+         "name" name
+         "fields"
+         (mapv
+          (fn [[attr-n {:crux.schema/keys [description arguments]
+                        :crux.graphql/keys [name]}]]
+            (cond-> {"name" name}
+              description (conj ["description" description])
+              arguments
+              (conj ["args"
+                     (mapv
+                      (fn [[arg-k {n :crux.graphql/name
+                                   desc :crux.schema/description :as arg}]]
+                        (assert n (format "InputValue must have a name: %s" (pr-str arg)))
+                        (cond->
+                            {"name" n}
+                            desc (conj ["description" desc])
+                            true (conj ["type" {"kind" "SCALAR"
+                                                "name" "String"
+                                                "typeOf" nil}]))) arguments)]))) attributes)
+
+         :crux.schema/entity e})))
+
   (defrecord DbSchema [db]
     Schema
 
     (resolve-type [this object-type field-name]
-
       (cond
         (= field-name "__schema")
         {"kind" "OBJECT"
@@ -494,75 +547,27 @@
 
         ;; Crux backed
         (:crux.schema/entity object-type)
-        (let [result
-              (let [attribute
-                    (some
-                     #(when (= (get % :crux.graphql/name) field-name) %)
-                     (vals (get-in object-type [:crux.schema/entity :crux.schema/attributes])))
+        (let [attribute
+              (some
+               #(when (= (get % :crux.graphql/name) field-name) %)
+               (vals (get-in object-type [:crux.schema/entity :crux.schema/attributes])))
 
-                    {:crux.schema/keys [cardinality required? description]
-                     type-ref :crux.schema/type}
-                    attribute]
-                (cond
-                  (= type-ref String)
-                  {"kind" "SCALAR"
-                   "name" "String"}
+              {:crux.schema/keys [cardinality required? description]
+               type-ref :crux.schema/type}
+              attribute
 
-                  (= type-ref Integer)
-                  {"kind" "SCALAR"
-                   "name" "Int"}
+              schema-type (if (keyword? type-ref) (crux/entity db type-ref) type-ref)
+              graphql-object-type (to-graphql-type schema-type)]
+          (cond
+            (= cardinality :crux.schema.cardinality/many)
+            {"kind" "LIST"
+             "ofType" graphql-object-type}
 
-                  (keyword? type-ref)
-                  (let [{:crux.graphql/keys [name]
-                         :crux.schema/keys [attributes]
-                         t :crux.schema/type
-                         :as e}
-                        (crux/entity db type-ref)
+            required?
+            {"kind" "NON_NULL"
+             "ofType" graphql-object-type}
 
-                        object-type
-                        {"kind" "OBJECT"
-                         "name" name
-                         "fields"
-                         (mapv
-                          (fn [[attr-n {:crux.schema/keys [description arguments]
-                                        :crux.graphql/keys [name]}]]
-                            (cond-> {"name" name}
-                              description (conj ["description" description])
-                              arguments
-                              (conj ["args"
-                                     (mapv
-                                      (fn [[arg-k {n :crux.graphql/name
-                                                   desc :crux.schema/description :as arg}]]
-                                        (assert n (format "InputValue must have a name: %s" (pr-str arg)))
-                                        (cond->
-                                            {"name" n}
-                                            desc (conj ["description" desc])
-                                            true (conj ["type" {"kind" "SCALAR"
-                                                                "name" "String"
-                                                                "typeOf" nil}]))) arguments)]))) attributes)
-                         "ofType" nil
-                         :crux.schema/entity e}]
-
-                    (cond
-                      (= cardinality :crux.schema.cardinality/many)
-                      {"kind" "LIST"
-                       "ofType" object-type}
-
-                      required?
-                      {"kind" "NON_NULL"
-                       "ofType" object-type}
-
-                      :else object-type))
-
-                  :else
-                  (throw
-                   (ex-info
-                    (format "TODO: resolve Crux-backed type: %s" field-name)
-                    {:object-type object-type
-                     :field-name field-name
-                     :type-ref type-ref
-                     :type-ref-type (type type-ref)}))))]
-          result)
+            :else graphql-object-type))
 
         :else
         (throw
@@ -573,6 +578,19 @@
 
   (defmethod print-method DbSchema [c w]
     (print-method (into {} (assoc c :schema "(schema)")) w))
+
+  (defn visit-types [db tref visited-set]
+    (cond
+      (keyword? tref)
+      (let [e (crux/entity db tref)]
+        (cons e
+              (let [visits (set/difference
+                            (set (map (fn [[_ v]] (:crux.schema/type v)) (:crux.schema/attributes e)))
+                            visited-set)
+                    new-visited-set (set/union visited-set visits)]
+                (mapcat (fn [t] (visit-types db t new-visited-set)) visits))))
+      :else
+      [tref]))
 
   (with-open
     [node (crux/start-node {:crux.node/topology '[crux.standalone/topology]})]
@@ -669,7 +687,7 @@
                {:crux.schema/description "A particular film in the James Bond universe."
                 ;; The type is the relation was are targetting.
                 :crux.schema/type :ex.type/film
-                :crux.schema/cardinality :crux.schema.cardinality/many
+                :crux.schema/cardinality :crux.schema.cardinality/one
 
                 ;; GraphQL fields are the analog of Crux attributes. Fields have
                 ;; arguments, so makes sense to declare them here, at the
@@ -708,9 +726,16 @@
               (io/resource "james-bond.edn")))]
         [:crux.tx/put record])))
 
-    (let [db (crux/db node)]
+
+
+    (let [db (crux/db node)
+          schema (map->DbSchema
+                  {"queryType" "Root"
+                   :db db})]
 
       ;; Query the schema with GraphQL execution
+      ;;
+
 
       (let [document
             (->
@@ -733,6 +758,8 @@
                    {"queryType" "Root"
                     :db db})
           :document document
+          ;; TODO: Where was the original code written to determine the query to
+          ;; run? Also, see spec advice on this.
           :operation-name "IntrospectionQuery"
           :variable-values {}
           :initial-value (crux/entity db :ex.type/graphql-query-root)
@@ -742,12 +769,14 @@
 
             (cond
               (= field-name "__schema")
-              {"types" []
-               "queryType" {"kind" "OBJECT"
-                            "name" "Root"}
-               "mutationType" nil
-               "subscriptionType" nil
-               "directives" []}
+              (do
+                {"types" (mapv to-graphql-type (visit-types db :ex.type/graphql-query-root #{}))
+                 ;; possible types
+                 "queryType" {"kind" "OBJECT"
+                              "name" "Root"}
+                 "mutationType" nil
+                 "subscriptionType" nil
+                 "directives" []})
 
               (= field-name "__type")
               (throw (ex-info "TODO: __type" {}))
