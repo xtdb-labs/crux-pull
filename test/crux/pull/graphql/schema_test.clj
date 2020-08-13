@@ -227,17 +227,11 @@
     [{:keys [object-type object-value field-name argument-values field-resolver] :as args}]
     (assert field-resolver)
 
-    (println "Resolving field value")
-    (pprint args)
-
-    (let [res (field-resolver
-               {:object-type object-type
-                :field-name field-name
-                :object-value object-value
-                :argument-values argument-values})]
-      (prn "=>" res)
-      res
-      ))
+    (field-resolver
+     {:object-type object-type
+      :field-name field-name
+      :object-value object-value
+      :argument-values argument-values}))
 
   (declare execute-selection-set-normally)
 
@@ -250,9 +244,6 @@
     (assert field-type)
     (assert schema)
     (assert document)
-
-    (println (get field-type "kind") "result:")
-    (pprint result)
 
     (cond
       ;; 1. If the fieldType is a Non‐Null type:
@@ -306,7 +297,6 @@
           ;; CompleteValue(innerType, fields, resultItem, variableValues),
           ;; where resultItem is each item in result.
 
-          (println "result-items" result)
           (doall
            (for [result-item result]
              (complete-value
@@ -539,14 +529,16 @@
               (conj ["args"
                      (mapv
                       (fn [[arg-k {n :crux.graphql/name
-                                   desc :crux.schema/description :as arg}]]
+                                   desc :crux.schema/description
+                                   t :crux.schema/type
+                                   :as arg}]]
                         (assert n (format "InputValue must have a name: %s" (pr-str arg)))
+                        (assert t (format "InputValue must have a type: %s" (pr-str arg)))
                         (cond->
                             {"name" n}
                             desc (conj ["description" desc])
-                            true (conj ["type" {"kind" "SCALAR"
-                                                "name" "String"
-                                                "ofType" nil}]))) arguments)])
+                            true (conj ["type" (to-graphql-type db t)])))
+                      arguments)])
               true
               (conj ["type" (to-graphql-type db type)])
               true
@@ -685,7 +677,20 @@
 
 
         (= (get object-type "name") "__InputValue")
-        (throw (ex-info "TODO: __InputValue" {}))
+        (case field-name
+          "name" {"kind" "NON_NULL"
+                  "ofType" {"kind" "SCALAR"
+                            "name" "String"}}
+
+          "description" {"kind" "SCALAR"
+                         "name" "String"}
+
+          "type" {"kind" "NON_NULL"
+                  "ofType" {"kind" "OBJECT"
+                            "name" "__Type"}}
+
+          "defaultValue" {"kind" "SCALAR"
+                          "name" "String"})
 
         (= (get object-type "name") "__EnumValue")
         (throw (ex-info "TODO: __EnumValue" {}))
@@ -843,23 +848,27 @@
                 :crux.schema/arguments
                 {:id
                  {:crux.schema/join :crux.db/id
-                  :crux.graphql/name "id"}
+                  :crux.graphql/name "id"
+                  :crux.schema/type String}
 
                  :name
                  {:crux.schema/join :film/name
                   :crux.schema/comparator :crux.schema.comparator/equals
-                  :crux.graphql/name "name"}
+                  :crux.graphql/name "name"
+                  :crux.schema/type String}
 
                  :year
                  {:crux.schema/join :film/year
                   :crux.schema/comparator :crux.schema.comparator/equals
-                  :crux.graphql/name "madeIn"}
+                  :crux.graphql/name "madeIn"
+                  :crux.schema/type String}
 
                  :cost-more-than
                  {:crux.schema/join :film/cost
                   :crux.schema/description "A comparison query on cost"
                   :crux.schema/comparator :crux.schema.comparator/greater-than
-                  :crux.graphql/name "costsMore"}}
+                  :crux.graphql/name "costsMore"
+                  :crux.schema/type Integer}}
 
                 :crux.graphql/name "film"}}}]]
         [:crux.tx/put ent])))
@@ -961,15 +970,15 @@
                                      (for [k relation-required-attributes]
                                        ['?e k])
 
-                                     (:crux.schema/join attr)
-                                     (conj [(:crux.db/id object-value) (:crux.schema/join attr) '?e])
+                                   (:crux.schema/join attr)
+                                   (conj [(:crux.db/id object-value) (:crux.schema/join attr) '?e])
 
-                                     (:crux.schema/arguments attr)
-                                     (concat
-                                      (keep (fn [[arg-k arg-v]]
-                                              (when-let [[_ v] (find argument-values (:crux.graphql/name arg-v))]
-                                                ['?e (:crux.schema/join arg-v) v]))
-                                            (:crux.schema/arguments attr)))))}]
+                                   (:crux.schema/arguments attr)
+                                   (concat
+                                    (keep (fn [[arg-k arg-v]]
+                                            (when-let [[_ v] (find argument-values (:crux.graphql/name arg-v))]
+                                              ['?e (:crux.schema/join arg-v) v]))
+                                          (:crux.schema/arguments attr)))))}]
 
                     (for [ref (map first (crux/q db datalog))]
                       (crux/entity db ref)))
