@@ -62,21 +62,37 @@
               :crux.schema/derived
               ^:crux.memoize '(fn [{:film/keys [box cost]}] (- box cost))
               :crux.graphql/name "earnings"}
-             :film/vehicles
-             {:crux.schema/type :ex.type/vehicle
-              :crux.schema/join :film/vehicles
-              :crux.schema/cardinality :crux.schema.cardinality/many
-              :crux.graphql/name "vehicles"}
              :film/director
              {:crux.schema/type :ex.type/director
               :crux.schema/join :film/director
               :crux.schema/cardinality :crux.schema.cardinality/one
               :crux.schema/required? false
-              :crux.graphql/name "director"}}}
+              :crux.graphql/name "director"}
+             :film/vehicles
+             {:crux.schema/type :ex.type/vehicle
+              :crux.schema/join :film/vehicles
+              :crux.schema/cardinality :crux.schema.cardinality/many
+              :crux.graphql/name "vehicles"}
+             :film/bond-girls
+             {:crux.schema/type :ex.type/bond-girl
+              :crux.schema/join :film/bond-girls
+              :crux.schema/cardinality :crux.schema.cardinality/many
+              :crux.graphql/name "bondGirls"}
+             }}
 
            {:crux.db/id :ex.type/director
             :crux.schema/type :crux.schema.type/relation
             :crux.graphql/name "Director"
+            :crux.schema/attributes
+            {:person/name
+             {:crux.schema/type String
+              :crux.schema/cardinality :crux.schema.cardinality/one
+              :crux.schema/required? true
+              :crux.graphql/name "name"}}}
+
+           {:crux.db/id :ex.type/bond-girl
+            :crux.schema/type :crux.schema.type/relation
+            :crux.graphql/name "BondGirl"
             :crux.schema/attributes
             {:person/name
              {:crux.schema/type String
