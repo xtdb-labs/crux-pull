@@ -553,7 +553,6 @@
     Schema
 
     (resolve-type [this object-type field-name]
-      (printf "Resolving type, field-name is '%s'\n" field-name)
       (cond
         (= field-name "__schema")
         {"kind" "OBJECT"
