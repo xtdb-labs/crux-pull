@@ -22,10 +22,12 @@
       :crux.graphql.spec-ref/section "6.3.2"
       :crux.graphql.spec-ref/algorithm "CollectFields"}
     collect-fields
-    [{:keys [object-type selection-set variable-values visited-fragments]
+    [{:keys [object-type selection-set variable-values visited-fragments document]
       ;; 1. If visitedFragments if not provided, initialize it to the empty
       ;; set.
-      :or {visited-fragments {}}}]
+      :or {visited-fragments #{}}}]
+
+    (assert document)
 
     (reduce
      (fn [grouped-fields [selection-type selection]]
@@ -52,7 +54,69 @@
 
          :fragment-spread
          ;; d. If selection is a FragmentSpread:
-         (throw (ex-info "TODO: fragment-spread" {:selection selection}))
+         ;; i. Let fragmentSpreadName be the name of selection.
+         (let [fragment-spread-name (:fragment-name selection)]
+           ;; ii. If fragmentSpreadName is in visitedFragments, continue with
+           ;; the next selection in selectionSet.
+           (if (contains? visited-fragments fragment-spread-name)
+             grouped-fields
+
+             (let [ ;; iii. Add fragmentSpreadName to visitedFragments.
+                   visited-fragments (conj visited-fragments fragment-spread-name)
+                   ;; iv. Let fragment be the Fragment in the current Document
+                   ;; whose name is fragmentSpreadName.
+                   fragment (some
+                             #(when (= (:fragment-name %) fragment-spread-name)
+                                %) document)]
+               ;; v. If no such fragment exists, continue with the next
+               ;; selection in selectionSet.
+               (if-not fragment
+                 grouped-fields
+
+                 ;; vi. Let fragmentType be the type condition on fragment.
+                 (let [fragment-type (:named-type fragment)]
+
+                   ;; vii. If DoesFragmentTypeApply(objectType, fragmentType) is
+                   ;; false, continue with the next selection in selectionSet. (TODO)
+
+                   (let [
+                         ;; viii. Let fragmentSelectionSet be the top‐level selection
+                         ;; set of fragment.
+                         fragment-selection-set (:selection-set fragment)
+                         ;; ix. Let fragmentGroupedFieldSet be the result of calling
+                         ;; CollectFields(objectType, fragmentSelectionSet,
+                         ;; visitedFragments).
+                         fragment-group-field-set
+                         (collect-fields
+                          {:object-type object-type
+                           :selection-set fragment-selection-set
+                           :variable-values variable-values
+                           :visited-fragments visited-fragments
+                           :document document})]
+
+                     (reduce
+                      (fn [grouped-fields [response-key fragment-group]]
+                        (update grouped-fields response-key (fnil concat (list)) fragment-group))
+                      grouped-fields
+                      fragment-group-field-set)
+
+                     #_(throw
+                        (ex-info
+                         "TODO: fragment-spread"
+                         {:selection selection
+                          :fragment-spread-name fragment-spread-name
+                          :visited-fragments visited-fragments
+                          :fragment fragment
+                          :fragment-group-field-set fragment-group-field-set
+                          ;;:document document
+                          }))
+
+                     )
+
+                   )
+
+                 )
+               )))
 
          :inline-fragment
          (throw (ex-info "TODO: inline-fragment" {:selection selection}))))
@@ -112,7 +176,7 @@
              (and (= (get argument-type "kind") "NON_NULL")
                   (or (not has-value)
                       (nil? (second has-value))))
-             (throw (ex-info "Field error" {}))
+             (throw (ex-info "Field error, argument type is wrapped as non-null, but no argument value given" {}))
 
              ;; j. Otherwise if hasValue is true:
              has-value
@@ -160,14 +224,20 @@
       :crux.graphql.spec-ref/section "6.4.2"
       :crux.graphql.spec-ref/algorithm "ResolveFieldValue"}
     resolve-field-value
-    [{:keys [object-type object-value field-name argument-values field-resolver]}]
+    [{:keys [object-type object-value field-name argument-values field-resolver] :as args}]
     (assert field-resolver)
 
-    (field-resolver
-     {:object-type object-type
-      :field-name field-name
-      :object-value object-value
-      :argument-values argument-values}))
+    (println "Resolving field value")
+    (pprint args)
+
+    (let [res (field-resolver
+               {:object-type object-type
+                :field-name field-name
+                :object-value object-value
+                :argument-values argument-values})]
+      (prn "=>" res)
+      res
+      ))
 
   (declare execute-selection-set-normally)
 
@@ -175,28 +245,47 @@
           :crux.graphql.spec-ref/section "6.4.3"
           :crux.graphql.spec-ref/algorithm "CompleteValue"}
     complete-value
-    [{:keys [field-type fields result variable-values field-resolver schema]}]
+    [{:keys [field-type fields result variable-values field-resolver schema document]}]
 
+    (assert field-type)
     (assert schema)
+    (assert document)
+
+    (println (get field-type "kind") "result:")
+    (pprint result)
 
     (cond
       ;; 1. If the fieldType is a Non‐Null type:
       (= (get field-type "kind") "NON_NULL")
       ;; a. Let innerType be the inner type of fieldType.
       (let [inner-type (get field-type "ofType")
+            _ (assert inner-type (format "Field type %s is NON_NULL but doesn't have a non-nil ofType" (pr-str field-type)))
             ;; b. Let completedResult be the result of calling
             ;; CompleteValue(…).
             completed-result
-            (complete-value
-             {:field-type inner-type
-              :fields fields
-              :result result
-              :variable-values variable-values
-              :field-resolver field-resolver
-              :schema schema})]
+            (try
+              (complete-value
+               {:field-type inner-type
+                :fields fields
+                :result result
+                :variable-values variable-values
+                :field-resolver field-resolver
+                :schema schema
+                :document document})
+              (catch Throwable e
+                (throw
+                 (ex-info
+                  "Error on complete-value"
+                  {:field-type field-type
+                   :inner-type inner-type}
+                  e))
+                ))]
         ;; c. If completedResult is null, throw a field error.
         (when (nil? completed-result)
-          (throw (ex-info "Field error" {:field-type inner-type})))
+          (throw (ex-info
+                  "Field error, NON_NULL type returned nil value for inner type"
+                  {:inner-type inner-type
+                   :result result})))
         ;; d. Return completedResult.
         completed-result)
 
@@ -217,6 +306,7 @@
           ;; CompleteValue(innerType, fields, resultItem, variableValues),
           ;; where resultItem is each item in result.
 
+          (println "result-items" result)
           (doall
            (for [result-item result]
              (complete-value
@@ -225,7 +315,8 @@
                :result result-item
                :variable-values variable-values
                :field-resolver field-resolver
-               :schema schema})))))
+               :schema schema
+               :document document})))))
 
       ;; 4. If fieldType is a Scalar or Enum type:
       (#{"SCALAR" "ENUM"} (get field-type "kind"))
@@ -247,15 +338,17 @@
           :object-value result
           :variable-values variable-values
           :field-resolver field-resolver
-          :schema schema}))))
+          :schema schema
+          :document document}))))
 
   (defn
     ^{:crux.graphql.spec-ref/version "June2018"
       :crux.graphql.spec-ref/section "6.4"
       :crux.graphql.spec-ref/algorithm "ExecuteField"}
     execute-field
-    [{:keys [object-type object-value field-type fields variable-values field-resolver schema]}]
+    [{:keys [object-type object-value field-type fields variable-values field-resolver schema document]}]
     (assert schema)
+    (assert document)
 
     ;; 1. Let field be the first entry in fields.
     (let [field (first fields)
@@ -284,7 +377,8 @@
         :result resolved-value
         :variable-values variable-values
         :field-resolver field-resolver
-        :schema schema})))
+        :schema schema
+        :document document})))
 
   (defn
     ^{:crux.graphql.spec-ref/version "June2018"
@@ -292,16 +386,19 @@
       :crux.graphql.spec-ref/algorithm "ExecuteSelectionSet"}
     execute-selection-set-normally
     "Return a map with :data and :errors."
-    [{:keys [selection-set object-type object-value variable-values field-resolver schema]}]
+    [{:keys [selection-set object-type object-value variable-values field-resolver schema document]}]
 
     (assert schema)
+    (assert document)
 
     ;; 1. Let groupedFieldSet be the result of CollectFields
     (let [grouped-field-set
           (collect-fields
            {:object-type object-type
             :selection-set selection-set
-            :variable-values variable-values})
+            :variable-values variable-values
+            :document document})
+
           ;; 2. Initialize resultMap to an empty ordered map.
           result-map (ordered-map)]
 
@@ -327,7 +424,8 @@
                      :fields fields
                      :variable-values variable-values
                      :field-resolver field-resolver
-                     :schema schema})]
+                     :schema schema
+                     :document document})]
                ;; ii. Set responseValue as the value for responseKey in resultMap.
                (conj result-map [response-key response-value]))
              ;; Otherwise return the accumulator
@@ -340,8 +438,9 @@
       :crux.graphql.spec-ref/section "6.2.1"
       :crux.graphql.spec-ref/algorithm "ExecuteQuery"}
     execute-query
-    [{:keys [query schema variable-values initial-value field-resolver]}]
+    [{:keys [query schema variable-values initial-value field-resolver document]}]
     (assert schema)
+    (assert document)
 
     ;; 1. Let queryType be the root Query type in schema.
     (let [query-type-name (get schema "queryType")
@@ -375,7 +474,8 @@
           :object-value initial-value
           :variable-values variable-values
           :schema schema
-          :field-resolver field-resolver}))))
+          :field-resolver field-resolver
+          :document document}))))
 
   (defn
     ^{:crux.graphql.spec-ref/version "June2018"
@@ -398,7 +498,8 @@
           :schema schema
           :variable-values coerced-variable-values
           :initial-value initial-value
-          :field-resolver field-resolver})
+          :field-resolver field-resolver
+          :document document})
 
         ;; 4. Otherwise if operation is a mutation operation:
         ;;   a. Return ExecuteMutation(operation, schema, coercedVariableValues, initialValue).
@@ -412,28 +513,29 @@
 
         (throw (ex-info "No operation type on operation" {:operation operation})))))
 
-  (defn to-graphql-type [e]
+  (defn to-graphql-type [db t]
     (cond
-      (= e String)
+      (= t String)
       {"kind" "SCALAR"
        "name" "String"}
-      (= e Integer)
+      (= t Integer)
       {"kind" "SCALAR"
        "name" "Int"}
-      (map? e)
-      (let [{:crux.graphql/keys [name]
-             :crux.schema/keys [attributes]
-             t :crux.schema/type
-             } e]
+      (keyword? t)
+      (let [e (crux/entity db t)
+            {:crux.graphql/keys [name]
+             :crux.schema/keys [attributes]}
+            e]
         {"kind" "OBJECT"
+         ;; TODO: description
          "name" name
          "fields"
          (mapv
-          (fn [[attr-n {:crux.schema/keys [description arguments]
+          (fn [[attr-n {:crux.schema/keys [description arguments type]
                         :crux.graphql/keys [name]}]]
             (cond-> {"name" name}
               description (conj ["description" description])
-              arguments
+              true                      ; args is mandatory
               (conj ["args"
                      (mapv
                       (fn [[arg-k {n :crux.graphql/name
@@ -444,14 +546,22 @@
                             desc (conj ["description" desc])
                             true (conj ["type" {"kind" "SCALAR"
                                                 "name" "String"
-                                                "typeOf" nil}]))) arguments)]))) attributes)
+                                                "ofType" nil}]))) arguments)])
+              true
+              (conj ["type" (to-graphql-type db type)])
+              true
+              (conj ["isDeprecated" false])))
+          attributes)
 
-         :crux.schema/entity e})))
+         :crux.schema/entity e})
+
+      :else (throw (ex-info "Cannot convert to GraphQL type" {:t t}))))
 
   (defrecord DbSchema [db]
     Schema
 
     (resolve-type [this object-type field-name]
+      (printf "Resolving type, field-name is '%s'\n" field-name)
       (cond
         (= field-name "__schema")
         {"kind" "OBJECT"
@@ -513,37 +623,75 @@
         (case field-name
           "kind" {"kind" "ENUM"
                   "enumValues" []}
+
           "name" {"kind" "SCALAR"
                   "name" "String"}
+
           "description" {"kind" "SCALAR"
                          "name" "String"}
+
           "fields" {"kind" "LIST"
                     "ofType" {"kind" "NON_NULL"
-                              "typeOf" {"kind" "OBJECT"
+                              "ofType" {"kind" "OBJECT"
                                         "name" "__Field"}}}
           "interfaces" {"kind" "LIST"
                         "ofType" {"kind" "NON_NULL"
-                                  "typeOf" {"kind" "OBJECT"
+                                  "ofType" {"kind" "OBJECT"
                                             "name" "__Type"}}}
           "possibleTypes" {"kind" "LIST"
                            "ofType" {"kind" "NON_NULL"
-                                     "typeOf" {"kind" "OBJECT"
+                                     "ofType" {"kind" "OBJECT"
                                                "name" "__Type"}}}
 
           "enumValues" {"kind" "LIST"
                         "ofType" {"kind" "NON_NULL"
-                                  "typeOf" {"kind" "OBJECT"
+                                  "ofType" {"kind" "OBJECT"
                                             "name" "__EnumValue"}}}
 
           "inputFields" {"kind" "LIST"
                          "ofType" {"kind" "NON_NULL"
-                                   "typeOf" {"kind" "OBJECT"
+                                   "ofType" {"kind" "OBJECT"
                                              "name" "__InputValue"}}}
 
           "ofType" {"kind" "OBJECT"
                     "name" "__Type"}
 
           (throw (ex-info "No case" {:field-name field-name})))
+
+        (= (get object-type "name") "__Field")
+        (case field-name
+          "name" {"kind" "NON_NULL"
+                  "ofType" {"kind" "SCALAR"
+                            "name" "String"}}
+
+          "description" {"kind" "SCALAR"
+                         "name" "String"}
+
+          "args" {"kind" "NON_NULL"
+                  "ofType" {"kind" "LIST"
+                            "ofType" {"kind" "NON_NULL"
+                                      "ofType" {"kind" "OBJECT"
+                                                "name" "__InputValue"}}}}
+          "type" {"kind" "NON_NULL"
+                  "ofType" {"kind" "OBJECT"
+                            "name" "__Type"}}
+
+          "isDeprecated" {"kind" "NON_NULL"
+                          "ofType" {"kind" "SCALAR"
+                                    "name" "Boolean"}}
+
+          "deprecationReason" {"kind" "SCALAR"
+                               "name" "String"})
+
+
+        (= (get object-type "name") "__InputValue")
+        (throw (ex-info "TODO: __InputValue" {}))
+
+        (= (get object-type "name") "__EnumValue")
+        (throw (ex-info "TODO: __EnumValue" {}))
+
+        (= (get object-type "name") "__Directive")
+        (throw (ex-info "TODO: __Directive" {}))
 
         ;; Crux backed
         (:crux.schema/entity object-type)
@@ -556,8 +704,7 @@
                type-ref :crux.schema/type}
               attribute
 
-              schema-type (if (keyword? type-ref) (crux/entity db type-ref) type-ref)
-              graphql-object-type (to-graphql-type schema-type)]
+              graphql-object-type (to-graphql-type db type-ref)]
           (cond
             (= cardinality :crux.schema.cardinality/many)
             {"kind" "LIST"
@@ -579,11 +726,12 @@
   (defmethod print-method DbSchema [c w]
     (print-method (into {} (assoc c :schema "(schema)")) w))
 
+  ;; TODO: This fn appears to only visit types of attributes, not arg types in relations
   (defn visit-types [db tref visited-set]
     (cond
       (keyword? tref)
       (let [e (crux/entity db tref)]
-        (cons e
+        (cons tref
               (let [visits (set/difference
                             (set (map (fn [[_ v]] (:crux.schema/type v)) (:crux.schema/attributes e)))
                             visited-set)
@@ -769,14 +917,13 @@
 
             (cond
               (= field-name "__schema")
-              (do
-                {"types" (mapv to-graphql-type (visit-types db :ex.type/graphql-query-root #{}))
-                 ;; possible types
-                 "queryType" {"kind" "OBJECT"
-                              "name" "Root"}
-                 "mutationType" nil
-                 "subscriptionType" nil
-                 "directives" []})
+              {"types" (mapv #(to-graphql-type db %) (visit-types db :ex.type/graphql-query-root #{}))
+               ;; possible types
+               "queryType" {"kind" "OBJECT"
+                            "name" "Root"}
+               "mutationType" nil
+               "subscriptionType" nil
+               "directives" []}
 
               (= field-name "__type")
               (throw (ex-info "TODO: __type" {}))
@@ -846,13 +993,15 @@
               :else
               (if-let [[_ child] (find object-value field-name)]
                 child
-                (throw
-                 (ex-info
-                  "TODO: resolve field"
-                  {:field-name field-name
-                   :object-value object-value
-                   :object-type object-type
-                   })))
+
+                nil
+                #_(pprint
+                   (ex-info
+                    "TODO: resolve field"
+                    {:field-name field-name
+                     :object-value object-value
+                     :object-type object-type
+                     })))
               ))})))))
 
 ;; https://en.wikipedia.org/wiki/Functional_dependency
