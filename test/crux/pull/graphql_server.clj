@@ -74,7 +74,7 @@
               :crux.schema/cardinality :crux.schema.cardinality/many
               :crux.graphql/name "vehicles"}
              :film/bond-girls
-             {:crux.schema/type :ex.type/bond-girl
+             {:crux.schema/type :ex.type/person
               :crux.schema/join :film/bond-girls
               :crux.schema/cardinality :crux.schema.cardinality/many
               :crux.graphql/name "bondGirls"}
@@ -88,11 +88,18 @@
              {:crux.schema/type String
               :crux.schema/cardinality :crux.schema.cardinality/one
               :crux.schema/required? true
-              :crux.graphql/name "name"}}}
+              :crux.graphql/name "name"}
+             :films
+             {:crux.schema/type :ex.type/film
+              :crux.schema/backjoin :film/director
+              :crux.schema/cardinality :crux.schema.cardinality/many
+              :crux.schema/required? false
+              :crux.graphql/name "films"}
+             }}
 
-           {:crux.db/id :ex.type/bond-girl
+           {:crux.db/id :ex.type/person
             :crux.schema/type :crux.schema.type/relation
-            :crux.graphql/name "BondGirl"
+            :crux.graphql/name "Person"
             :crux.schema/attributes
             {:person/name
              {:crux.schema/type String
@@ -251,6 +258,9 @@
                                            (:crux.schema/join attr)
                                            (conj [(:crux.db/id object-value) (:crux.schema/join attr) '?e])
 
+                                           (:crux.schema/backjoin attr)
+                                           (conj ['?e (:crux.schema/backjoin attr) (:crux.db/id object-value)])
+
                                            (:crux.schema/arguments attr)
                                            (concat
                                             (keep (fn [[arg-k arg-v]]
@@ -258,8 +268,8 @@
                                                       ['?e (:crux.schema/join arg-v) v]))
                                                   (:crux.schema/arguments attr)))))}]
 
-                          ;;(println "DATALOG, cardinality is" cardinality)
-                          ;;(pprint datalog)
+;;                          (println "DATALOG, cardinality is" cardinality)
+;;                          (pprint datalog)
 
                           (cond->
                               (for [ref (map first (crux/q db datalog))]
@@ -269,10 +279,10 @@
                                   #_(println r)
                                   r
                                   ))
-                            (= cardinality :crux.schema.cardinality/one)
-                            first
-                            (= cardinality :crux.schema.cardinality/many)
-                            vec))
+                              (= cardinality :crux.schema.cardinality/one)
+                              first
+                              (= cardinality :crux.schema.cardinality/many)
+                              vec))
 
                         (#{String Integer} field-type)
                         ;; What if the :crux.schema/type of the field is different?

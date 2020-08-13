@@ -6,51 +6,58 @@
    [crux.api :as crux]
    [clojure.set :as set]))
 
-(defn to-graphql-type [db t]
-  (cond
-    (= t String)
-    {"kind" "SCALAR"
-     "name" "String"}
-    (= t Integer)
-    {"kind" "SCALAR"
-     "name" "Int"}
-    (keyword? t)
-    (let [e (crux/entity db t)
-          {:crux.graphql/keys [name]
-           :crux.schema/keys [attributes]}
-          e]
-      {"kind" "OBJECT"
-       ;; TODO: description
-       "name" name
-       "fields"
-       (mapv
-        (fn [[_ {:crux.schema/keys [description arguments type]
-                 :crux.graphql/keys [name]}]]
-          (cond-> {"name" name}
-            description (conj ["description" description])
-            true                        ; args is mandatory
-            (conj ["args"
-                   (mapv
-                    (fn [[_ {n :crux.graphql/name
-                             desc :crux.schema/description
-                             t :crux.schema/type
-                             :as arg}]]
-                      (assert n (format "InputValue must have a name: %s" (pr-str arg)))
-                      (assert t (format "InputValue must have a type: %s" (pr-str arg)))
-                      (cond->
-                          {"name" n}
-                          desc (conj ["description" desc])
-                          true (conj ["type" (to-graphql-type db t)])))
-                    arguments)])
-            true
-            (conj ["type" (to-graphql-type db type)])
-            true
-            (conj ["isDeprecated" false])))
-        attributes)
-       "interfaces" []
-       :crux.schema/entity e})
+(defn to-graphql-type
+  ([db t]
+   (to-graphql-type db t true)
+   )
+  ([db t fields?]
+   (cond
+     (= t String)
+     {"kind" "SCALAR"
+      "name" "String"}
+     (= t Integer)
+     {"kind" "SCALAR"
+      "name" "Int"}
+     (keyword? t)
+     (let [e (crux/entity db t)
+           {:crux.graphql/keys [name]
+            :crux.schema/keys [attributes]}
+           e]
+       (cond->
+           {"kind" "OBJECT"
+        ;; TODO: description
+            "name" name}
+         fields?
+         (into
+          {"fields"
+           (mapv
+            (fn [[_ {:crux.schema/keys [description arguments type]
+                     :crux.graphql/keys [name]}]]
+              (cond-> {"name" name}
+                description (conj ["description" description])
+                true                       ; args is mandatory
+                (conj ["args"
+                       (mapv
+                        (fn [[_ {n :crux.graphql/name
+                                 desc :crux.schema/description
+                                 t :crux.schema/type
+                                 :as arg}]]
+                          (assert n (format "InputValue must have a name: %s" (pr-str arg)))
+                          (assert t (format "InputValue must have a type: %s" (pr-str arg)))
+                          (cond->
+                              {"name" n}
+                            desc (conj ["description" desc])
+                            true (conj ["type" (to-graphql-type db t)])))
+                        arguments)])
+                true
+                (conj ["type" (to-graphql-type db type false)])
+                true
+                (conj ["isDeprecated" false])))
+            attributes)
+           "interfaces" []
+           :crux.schema/entity e})))
 
-    :else (throw (ex-info "Cannot convert to GraphQL type" {:t t}))))
+     :else (throw (ex-info "Cannot convert to GraphQL type" {:t t})))))
 
 
 ;; TODO: This fn appears to only visit types of attributes, not arg types in relations
