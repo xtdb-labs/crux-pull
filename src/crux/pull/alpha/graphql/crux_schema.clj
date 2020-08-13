@@ -21,41 +21,41 @@
      (keyword? t)
      (let [e (crux/entity db t)
            {:crux.graphql/keys [name]
-            :crux.schema/keys [attributes]}
+            :crux.schema/keys [description attributes]}
            e]
        (cond->
            {"kind" "OBJECT"
-        ;; TODO: description
             "name" name}
-         fields?
-         (into
-          {"fields"
-           (mapv
-            (fn [[_ {:crux.schema/keys [description arguments type]
-                     :crux.graphql/keys [name]}]]
-              (cond-> {"name" name}
-                description (conj ["description" description])
-                true                       ; args is mandatory
-                (conj ["args"
-                       (mapv
-                        (fn [[_ {n :crux.graphql/name
-                                 desc :crux.schema/description
-                                 t :crux.schema/type
-                                 :as arg}]]
-                          (assert n (format "InputValue must have a name: %s" (pr-str arg)))
-                          (assert t (format "InputValue must have a type: %s" (pr-str arg)))
-                          (cond->
-                              {"name" n}
-                            desc (conj ["description" desc])
-                            true (conj ["type" (to-graphql-type db t)])))
-                        arguments)])
-                true
-                (conj ["type" (to-graphql-type db type false)])
-                true
-                (conj ["isDeprecated" false])))
-            attributes)
-           "interfaces" []
-           :crux.schema/entity e})))
+           description (conj ["description" description])
+           fields?
+           (into
+            {"fields"
+             (mapv
+              (fn [[_ {:crux.schema/keys [description arguments type]
+                       :crux.graphql/keys [name]}]]
+                (cond-> {"name" name}
+                  description (conj ["description" description])
+                  true                  ; args is mandatory
+                  (conj ["args"
+                         (mapv
+                          (fn [[_ {n :crux.graphql/name
+                                   desc :crux.schema/description
+                                   t :crux.schema/type
+                                   :as arg}]]
+                            (assert n (format "InputValue must have a name: %s" (pr-str arg)))
+                            (assert t (format "InputValue must have a type: %s" (pr-str arg)))
+                            (cond->
+                                {"name" n}
+                                desc (conj ["description" desc])
+                                true (conj ["type" (to-graphql-type db t)])))
+                          arguments)])
+                  true
+                  (conj ["type" (to-graphql-type db type false)])
+                  true
+                  (conj ["isDeprecated" false])))
+              attributes)
+             "interfaces" []
+             :crux.schema/entity e})))
 
      :else (throw (ex-info "Cannot convert to GraphQL type" {:t t})))))
 

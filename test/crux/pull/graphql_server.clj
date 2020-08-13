@@ -99,16 +99,19 @@
 
            {:crux.db/id :ex.type/person
             :crux.schema/type :crux.schema.type/relation
+            :crux.schema/description "An individual involved in one or more of the James Bond films"
             :crux.graphql/name "Person"
             :crux.schema/attributes
             {:person/name
              {:crux.schema/type String
+              :crux.schema/description "The person's full name"
               :crux.schema/cardinality :crux.schema.cardinality/one
               :crux.schema/required? true
               :crux.graphql/name "name"}}}
 
            {:crux.db/id :ex.type/vehicle
             :crux.schema/type :crux.schema.type/relation
+            :crux.schema/description "A vehicle used in one of the James Bond films"
             :crux.graphql/name "Vehicle"
             :crux.schema/attributes
             {:vehicle/brand
@@ -124,6 +127,7 @@
 
            {:crux.db/id :ex.type/graphql-query-root
             :crux.schema/type :crux.schema.type/relation
+            :crux.schema/description "Various queries on the James Bond universe"
             :crux.graphql/name "Root"
             :crux.schema/attributes
             {:all-films
@@ -131,6 +135,13 @@
               :crux.schema/type :ex.type/film
               :crux.schema/cardinality :crux.schema.cardinality/many
               :crux.graphql/name "allFilms"}
+             :all-directors
+             {:crux.schema/description "All the directors of James Bond films."
+              :crux.schema/type :ex.type/director
+              ;; No joins, just a constraint that something has to have a film/director attribute to this target
+              :crux.schema/where [['?t :film/director '?e]]
+              :crux.schema/cardinality :crux.schema.cardinality/many
+              :crux.graphql/name "allDirectors"}
              :film
              {:crux.schema/description "A particular film in the James Bond universe."
               ;; The type is the relation was are targetting.
@@ -266,10 +277,13 @@
                                             (keep (fn [[arg-k arg-v]]
                                                     (when-let [[_ v] (find argument-values (:crux.graphql/name arg-v))]
                                                       ['?e (:crux.schema/join arg-v) v]))
-                                                  (:crux.schema/arguments attr)))))}]
+                                                  (:crux.schema/arguments attr)))
 
-;;                          (println "DATALOG, cardinality is" cardinality)
-;;                          (pprint datalog)
+                                           (:crux.schema/where attr)
+                                           (concat (:crux.schema/where attr))))}]
+
+                          (println "DATALOG, cardinality is" cardinality)
+                          (pprint datalog)
 
                           (cond->
                               (for [ref (map first (crux/q db datalog))]
