@@ -287,6 +287,9 @@
   (assert schema)
   (assert document)
 
+;;  (println "complete-value with type " field-type)
+;;  (println "complete-value with result " result)
+
   (cond
     ;; 1. If the fieldType is a Non‐Null type:
     (= (get field-type "kind") "NON_NULL")
@@ -365,6 +368,8 @@
              {:field-type field-type
               :result result}))
           sub-selection-set (merge-selection-sets {:fields fields})]
+;;      (println "Going again with field-type" field-type)
+;;      (println "Going again with result" result)
       (execute-selection-set-normally
        {:selection-set sub-selection-set
         :object-type object-type
@@ -424,6 +429,9 @@
   (assert schema)
   (assert document)
 
+;;  (println "execute-selection-set-normally")
+;;  (pprint {:object-value object-value})
+
   ;; 1. Let groupedFieldSet be the result of CollectFields
   (let [grouped-field-set
         (collect-fields
@@ -431,6 +439,9 @@
           :selection-set selection-set
           :variable-values variable-values
           :document document})
+
+;;        _ (println "grouped-field-set")
+;;        _ (pprint grouped-field-set)
 
         ;; 2. Initialize resultMap to an empty ordered map.
         result-map (ordered-map)]

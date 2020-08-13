@@ -3,6 +3,7 @@
 (ns crux.pull.graphql-server
   (:require
    [integrant.core :as ig]
+   [clojure.pprint :refer [pprint]]
    [ring.adapter.jetty :as jetty]
    [jsonista.core :as json]
    [crux.pull.alpha.graphql.crux-schema :as cgl]
@@ -68,6 +69,7 @@
               :crux.graphql/name "vehicles"}
              :film/director
              {:crux.schema/type :ex.type/director
+              :crux.schema/join :film/director
               :crux.schema/cardinality :crux.schema.cardinality/one
               :crux.schema/required? false
               :crux.graphql/name "director"}}}
@@ -168,99 +170,117 @@
           :headers {"content-type" "application/json"}
           :body
           (json/write-value-as-string
-           {:data
-            (grab/execute-request
-             {:schema (cgl/map->DbSchema
-                       {"queryType" "Root"
-                        :db db})
-              :document document
-              ;; TODO: Where was the original code written to determine the query to
-              ;; run? Also, see spec advice on this.
-              :variable-values {}
-              :initial-value (crux/entity db :ex.type/graphql-query-root)
+           (try
+             {:data
+              (grab/execute-request
+               {:schema (cgl/map->DbSchema
+                         {"queryType" "Root"
+                          :db db})
+                :document document
+                ;; TODO: Where was the original code written to determine the query to
+                ;; run? Also, see spec advice on this.
+                :variable-values {}
+                :initial-value (crux/entity db :ex.type/graphql-query-root)
 
-              :field-resolver
-              (fn [{:keys [object-type field-name object-value argument-values] :as args}]
+                :field-resolver
+                (fn [{:keys [object-type field-name object-value argument-values] :as args}]
 
-                (cond
-                  (= field-name "__schema")
-                  {"types" (mapv #(cgl/to-graphql-type db %) (cgl/visit-types db :ex.type/graphql-query-root #{}))
-                   ;; possible types
-                   "queryType" {"kind" "OBJECT"
-                                "name" "Root"}
-                   "mutationType" nil
-                   "subscriptionType" nil
-                   "directives" []}
+                  (cond
+                    (= field-name "__schema")
+                    {"types" (mapv #(cgl/to-graphql-type db %) (cgl/visit-types db :ex.type/graphql-query-root #{}))
+                     ;; possible types
+                     "queryType" {"kind" "OBJECT"
+                                  "name" "Root"}
+                     "mutationType" nil
+                     "subscriptionType" nil
+                     "directives" []}
 
-                  (= field-name "__type")
-                  (throw (ex-info "TODO: __type" {}))
+                    (= field-name "__type")
+                    (throw (ex-info "TODO: __type" {}))
 
-                  (:crux.schema/entity object-type)
-                  (let [[attr-k attr]
-                        (some
-                         #(when (= (get (second %) :crux.graphql/name) field-name) %)
-                         (get-in object-type [:crux.schema/entity :crux.schema/attributes]))
+                    (:crux.schema/entity object-type)
+                    (let [[attr-k attr]
+                          (some
+                           #(when (= (get (second %) :crux.graphql/name) field-name) %)
+                           (get-in object-type [:crux.schema/entity :crux.schema/attributes]))
 
-                        field-type (:crux.schema/type attr)]
+                          cardinality (:crux.schema/cardinality attr)
+                          field-type (:crux.schema/type attr)]
 
-                    ;; For each arg in :crux.schema/arguments, go through with argument-values
+                      ;; For each arg in :crux.schema/arguments, go through with argument-values
 
-                    (cond
+                      (cond
 
-                      ;; A :crux.schema/type of a keyword, absolutely implies this is
-                      ;; a reference to another relation. The cardinality is implied
-                      ;; to be :crux.schema.cardinality/zero-or-more, but we should
-                      ;; think about whether cardinality needs to be explicit in this
-                      ;; case, and what other cardinalities would mean.
-                      (keyword? field-type)
-                      ;; Check type is list first?
-                      (let [relation (crux/entity db field-type)
+                        ;; A :crux.schema/type of a keyword, absolutely implies this is
+                        ;; a reference to another relation. The cardinality is implied
+                        ;; to be :crux.schema.cardinality/zero-or-more, but we should
+                        ;; think about whether cardinality needs to be explicit in this
+                        ;; case, and what other cardinalities would mean.
+                        (keyword? field-type)
+                        ;; Check type is list first?
+                        (let [relation (crux/entity db field-type)
 
-                            relation-required-attributes
-                            (for [[k v] (:crux.schema/attributes relation)
-                                  :when (:crux.schema/required? v)]
-                              k)
+                              relation-required-attributes
+                              (for [[k v] (:crux.schema/attributes relation)
+                                    :when (:crux.schema/required? v)]
+                                k)
 
-                            datalog
-                            {:find ['?e]
-                             :where (vec
-                                     (cond->
-                                         (for [k relation-required-attributes]
-                                           ['?e k])
+                              datalog
+                              {:find ['?e]
+                               :where (vec
+                                       (cond->
+                                           (for [k relation-required-attributes]
+                                             ['?e k])
 
-                                         (:crux.schema/join attr)
-                                         (conj [(:crux.db/id object-value) (:crux.schema/join attr) '?e])
+                                           (:crux.schema/join attr)
+                                           (conj [(:crux.db/id object-value) (:crux.schema/join attr) '?e])
 
-                                         (:crux.schema/arguments attr)
-                                         (concat
-                                          (keep (fn [[arg-k arg-v]]
-                                                  (when-let [[_ v] (find argument-values (:crux.graphql/name arg-v))]
-                                                    ['?e (:crux.schema/join arg-v) v]))
-                                                (:crux.schema/arguments attr)))))}]
+                                           (:crux.schema/arguments attr)
+                                           (concat
+                                            (keep (fn [[arg-k arg-v]]
+                                                    (when-let [[_ v] (find argument-values (:crux.graphql/name arg-v))]
+                                                      ['?e (:crux.schema/join arg-v) v]))
+                                                  (:crux.schema/arguments attr)))))}]
 
-                        (for [ref (map first (crux/q db datalog))]
-                          (crux/entity db ref)))
+                          ;;(println "DATALOG, cardinality is" cardinality)
+                          ;;(pprint datalog)
 
-                      (#{String Integer} field-type)
-                      ;; What if the :crux.schema/type of the field is different?
-                      (get object-value attr-k)
+                          (cond->
+                              (for [ref (map first (crux/q db datalog))]
+                                (let [r
+                                      (crux/entity db ref)]
+                                  #_(println "RESULT")
+                                  #_(println r)
+                                  r
+                                  ))
+                            (= cardinality :crux.schema.cardinality/one)
+                            first
+                            (= cardinality :crux.schema.cardinality/many)
+                            vec))
 
-                      :else
-                      (throw
-                       (ex-info
-                        "TODO: resolve entity field"
-                        {:attr-k attr-k
-                         :field-name field-name
-                         :object-value object-value
-                         :object-type object-type
-                         :attr attr
-                         :field-type field-type}))))
+                        (#{String Integer} field-type)
+                        ;; What if the :crux.schema/type of the field is different?
+                        (get object-value attr-k)
 
+                        :else
+                        (throw
+                         (ex-info
+                          "TODO: resolve entity field"
+                          {:attr-k attr-k
+                           :field-name field-name
+                           :object-value object-value
+                           :object-type object-type
+                           :attr attr
+                           :field-type field-type}))))
 
-                  :else
-                  (if-let [[_ child] (find object-value field-name)]
-                    child
-                    nil)))})})})
+                    :else
+                    (if-let [[_ child] (find object-value field-name)]
+                      child
+                      nil)))})}
+             (catch clojure.lang.ExceptionInfo e
+               {:errors [{:error (.getMessage e)
+                          :data (ex-data e)}]}
+               )))})
        {:status 404
         :body "Not Found"}))
    (conj config [:join? false])))
