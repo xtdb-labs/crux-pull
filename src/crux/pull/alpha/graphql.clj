@@ -5,6 +5,7 @@
 
 (ns crux.pull.alpha.graphql
   (:require
+   [clojure.pprint :refer [pprint]]
    [juxt.reap.alpha.api :as reap]
    [juxt.reap.alpha.graphql :as reap-graphql]
    [flatland.ordered.map :refer [ordered-map]]))
@@ -50,9 +51,10 @@
                   (get-operation doc nil)))]
      op))
   ([doc op-name]
-   (when-let [op (some #(when (= (:name %) op-name) %) doc)]
-     op)))
-
+   (if (some? op-name)
+     (when-let [op (some #(when (= (:name %) op-name) %) doc)]
+       op)
+     (get-operation doc))))
 
 (defprotocol Schema
   (resolve-type [_ object-type field-name]))
@@ -313,10 +315,11 @@
               ))]
       ;; c. If completedResult is null, throw a field error.
       (when (nil? completed-result)
-        (throw (ex-info
-                "Field error, NON_NULL type returned nil value for inner type"
-                {:inner-type inner-type
-                 :result result})))
+        (throw
+         (ex-info
+          "Field error, NON_NULL type returned nil value for inner type"
+          {:inner-type inner-type
+           :result result})))
       ;; d. Return completedResult.
       completed-result)
 
@@ -512,6 +515,7 @@
     :crux.graphql.spec-ref/section "6.1"
     :crux.graphql.spec-ref/algorithm "ExecuteRequest"}
   execute-request [{:keys [schema document operation-name variable-values initial-value field-resolver]}]
+
   ;; 1. Let operation be the result of GetOperation(document, operationName).
   (let [operation (get-operation document operation-name)
         ;; 2. Let coercedVariableValues be the result of

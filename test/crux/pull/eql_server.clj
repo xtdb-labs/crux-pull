@@ -1,6 +1,6 @@
 ;; Copyright © 2020, JUXT LTD.
 
-(ns crux.pull.server
+(ns crux.pull.eql-server
   (:require
    [integrant.core :as ig]
    [ring.adapter.jetty :as jetty]

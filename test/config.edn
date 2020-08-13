@@ -2,6 +2,9 @@
  :ig/system
  {:juxt.crux.ig/system {:crux.node/topology [crux.standalone/topology]}
 
-  :crux.pull.server/server {:crux #ig/ref :juxt.crux.ig/system
-                            :port 8080}
+  :crux.pull.eql-server/server {:crux #ig/ref :juxt.crux.ig/system
+                                :port 8080}
+
+  :crux.pull.graphql-server/server {:crux #ig/ref :juxt.crux.ig/system
+                                    :port 8081}
   }}

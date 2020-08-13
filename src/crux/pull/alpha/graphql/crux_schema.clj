@@ -47,7 +47,7 @@
             true
             (conj ["isDeprecated" false])))
         attributes)
-
+       "interfaces" []
        :crux.schema/entity e})
 
     :else (throw (ex-info "Cannot convert to GraphQL type" {:t t}))))
